@@ -6,6 +6,7 @@
   "resources": ["stream", "catalog"],
   "rewind": {
     "kind": "adult",
+    "bundleUrl": "https://github.com/j4ckgrey/rewind_vault/releases/latest/download/index.mjs",
     "tabs": [],
     "configKeys": ["theporndb_api_key"],
     "features": ["adult"]

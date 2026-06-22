@@ -45,18 +45,16 @@ helper — so it talks to all of them through the `VaultHost` contract in
 `host.ts`, registered once via `setVaultHost()`. It also depends on **The Forge**
 (`@forge`) to resolve adult streams through the debrid resolvers.
 
-## Consuming it
+## How it's consumed (runtime plugin — NOT part of the server build)
 
-- **In-process (current):** rewind_server source-imports submodules granularly
-  via the `@vault/*` path alias (tsconfig `paths` + Next `experimental.externalDir`)
-  from its thin `handleAdult*` shells in `src/lib/handlers/libraries.ts`, and
-  registers a `VaultHost` backed by its own SQLite/scanner/searxng (see
-  `rewind_server/src/lib/vaultHost.ts`). Every adult endpoint 404s until the
-  `addon_vault_installed` flag is set. The Docker build context must include this
-  dir; for dev, `rewind_vault/node_modules` is symlinked to rewind_server's
-  install.
-- **Standalone (Phase 5):** wrap the submodules in an HTTP service and run as its
-  own container.
+The server ships clean; every adult endpoint 404s until this addon is installed.
+`src/plugin.ts` exports `register(host)` (calls `setVaultHost`, returns the
+namespaces the server's thin `handleAdult*` shells call). Install flow:
+`npm run build` → publish `dist/index.mjs` → paste this repo's `manifest.json`
+URL in **Integrations → Addons** → the server downloads the bundle into
+`data/addons/adult/index.mjs` and loads it with its DB/ffprobe/web-search host.
+The build bundles The Forge's resolver/parser (via `@forge`) so the Vault
+resolves adult streams through the debrid resolvers without a separate install.
 
 ## Develop
 
@@ -64,4 +62,5 @@ helper — so it talks to all of them through the `VaultHost` contract in
 npm install
 npm run typecheck
 npm test
+npm run build      # → dist/index.mjs
 ```
