@@ -1,22 +1,53 @@
 {
   "id": "rewind.vault",
-  "name": "The Vault",
-  "version": "2.0.0",
-  "description": "Adult content for Rewind — password-gated catalog + search (ThePornDB metadata; Zilean / Torznab / apiJAV / Rapidgator sourcing; on-demand debrid playback). Stays fully isolated from every normal library. Installing reveals the Adult library kind, the Adult sources section, and the ThePornDB credential.",
-  "resources": ["catalog", "search", "stream", "resolve", "playback"],
-  "types": ["adult"],
-  "idPrefixes": ["tpdb:"],
+  "name": "Vault",
+  "version": "2.0.1",
+  "description": "Adult content for Rewind \u2014 password-gated catalog + search (ThePornDB metadata; Zilean / Torznab / apiJAV / Rapidgator sourcing; on-demand debrid playback). Stays fully isolated from every normal library. Installing reveals the Adult library kind, the Adult sources section, and the ThePornDB credential.",
+  "resources": [
+    "catalog",
+    "search",
+    "meta",
+    "artwork",
+    "stream",
+    "resolve"
+  ],
+  "types": [
+    "adult",
+    "person"
+  ],
+  "idPrefixes": [
+    "tpdb:",
+    "performer:"
+  ],
+  "provides": {
+    "content": [
+      "adult"
+    ],
+    "metadata": [
+      "adult"
+    ],
+    "artwork": [
+      "adult"
+    ]
+  },
   "rewind": {
     "kind": "adult",
-    "sdk": 1,
+    "sdk": 2,
     "repo": "j4ckgrey/rewind_vault",
     "branch": "main",
     "bundlePath": "dist/index.mjs",
     "bundleUrl": "https://raw.githubusercontent.com/j4ckgrey/rewind_vault/release/dist/index.mjs",
     "tabs": [],
     "configKeys": [
-      { "key": "theporndb_api_key", "label": "ThePornDB", "category": "Adult Content", "description": "API token from api.theporndb.net → API tokens. Powers adult metadata + search." }
+      {
+        "key": "theporndb_api_key",
+        "label": "ThePornDB",
+        "category": "Adult Content",
+        "description": "API token from api.theporndb.net \u2192 API tokens. Powers adult metadata + search."
+      }
     ],
-    "features": ["adult"]
+    "features": [
+      "adult"
+    ]
   }
 }

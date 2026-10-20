@@ -167,20 +167,20 @@ var init_log2 = __esm({
 });
 
 // ../rewind_forge/src/filter.ts
-function applyFilters(streams, prefs) {
-  return streams.filter((s) => matchesPrefs(s, prefs));
+function applyFilters(streams2, prefs) {
+  return streams2.filter((s) => matchesPrefs(s, prefs));
 }
-function applySeasonEpisodeGate(streams, query) {
+function applySeasonEpisodeGate(streams2, query) {
   if (query.kind === "movie") {
-    return streams.filter(
+    return streams2.filter(
       (s) => s.seasons.length === 0 && s.episodes.length === 0
     );
   }
-  if (query.kind !== "series") return streams;
+  if (query.kind !== "series") return streams2;
   const wantedSeason = query.season;
   const wantedEpisode = query.episode;
-  if (!wantedSeason && !wantedEpisode) return streams;
-  return streams.filter((s) => {
+  if (!wantedSeason && !wantedEpisode) return streams2;
+  return streams2.filter((s) => {
     const hasSeasons = s.seasons.length > 0;
     const hasEpisodes = s.episodes.length > 0;
     if (!hasSeasons && !hasEpisodes) return true;
@@ -216,7 +216,7 @@ function matchesPrefs(stream, prefs) {
     if (allExcluded) return false;
   }
   if (prefs.languages.length > 0 && stream.languages.length > 0) {
-    const hit = stream.languages.some((l) => prefs.languages.includes(l));
+    const hit = stream.languages.some((l) => prefs.languages.includes(l) || l === "multi" || l === "dual");
     if (!hit) return false;
   }
   if (prefs.minSeeders != null && stream.seeders != null) {
@@ -224,9 +224,9 @@ function matchesPrefs(stream, prefs) {
   }
   return true;
 }
-function applyAvailabilityFilters(streams, prefs) {
-  if (!prefs.excludeUncached) return streams;
-  return streams.filter((s) => s.cachedOnDebrid || s.assumedCached);
+function applyAvailabilityFilters(streams2, prefs) {
+  if (!prefs.excludeUncached) return streams2;
+  return streams2.filter((s) => s.cachedOnDebrid || s.assumedCached);
 }
 function parseStreamPrefs(row) {
   const safeJson = (s, fallback) => {
@@ -4320,7 +4320,7 @@ function parseCandidate(candidate) {
 }
 function parseSizeBytes(text) {
   if (!text) return null;
-  const match = text.match(/(\d+(?:[.,]\d+)?)\s*(b|kb|mb|gb|tb|kib|mib|gib|tib)/i);
+  const match = text.match(/(\d+(?:[.,]\d+)?)\s*(b|kb|mb|gb|tb|kib|mib|gib|tib)\b/i);
   if (!match) return null;
   const value = parseFloat(match[1].replace(",", "."));
   if (Number.isNaN(value)) return null;
@@ -4674,11 +4674,11 @@ function embedBasicAuth(url, user, pass) {
   return url.replace(/^(https?:\/\/)/i, (m) => `${m}${encodeURIComponent(user)}:${encodeURIComponent(pass)}@`);
 }
 async function sleep2(ms, signal) {
-  await new Promise((resolve) => {
-    const t = setTimeout(resolve, ms);
+  await new Promise((resolve2) => {
+    const t = setTimeout(resolve2, ms);
     signal?.addEventListener("abort", () => {
       clearTimeout(t);
-      resolve();
+      resolve2();
     }, { once: true });
   });
 }
@@ -5241,9 +5241,9 @@ var init_realdebrid = __esm({
         const BATCH = 40;
         for (let i = 0; i < torrents.length; i += BATCH) {
           const slice = torrents.slice(i, i + BATCH);
-          const path = slice.map((c) => c.infoHash).join("/");
+          const path4 = slice.map((c) => c.infoHash).join("/");
           const data = await fetchAuthed(
-            `${RD_HOST}/torrents/instantAvailability/${path}`,
+            `${RD_HOST}/torrents/instantAvailability/${path4}`,
             this.apiKey,
             { signal, label: "Real-Debrid" }
           );
@@ -5436,6 +5436,1440 @@ var init_torbox = __esm({
   }
 });
 
+// ../rewind_forge/src/usenet/files.ts
+var NzbFileReader, SpanFile;
+var init_files = __esm({
+  "../rewind_forge/src/usenet/files.ts"() {
+    "use strict";
+    NzbFileReader = class {
+      constructor(file, store, readAhead = 8) {
+        this.file = file;
+        this.store = store;
+        this.readAhead = readAhead;
+        this.size = 0;
+        this.partSize = 0;
+      }
+      /** Learn size + part size from the first article (or a saved layout). */
+      async open(layout) {
+        if (layout) {
+          this.size = layout.size;
+          this.partSize = layout.partSize;
+          return this;
+        }
+        const first = await this.store.get(this.file.segments[0].messageId);
+        this.size = first.fileSize;
+        this.partSize = first.data.length || 1;
+        return this;
+      }
+      get layout() {
+        return { size: this.size, partSize: this.partSize };
+      }
+      /** First decoded bytes (for magic sniffing / archive headers). */
+      async head() {
+        return (await this.store.get(this.file.segments[0].messageId)).data;
+      }
+      async read(offset, length) {
+        const out = [];
+        for await (const chunk of this.stream(offset, Math.min(this.size, offset + length) - 1)) out.push(chunk);
+        return Buffer.concat(out);
+      }
+      async *stream(start, endInclusive, signal) {
+        if (start > endInclusive) return;
+        let { index, part } = await this.locate(start);
+        let pos = start;
+        const segs = this.file.segments;
+        const ahead = /* @__PURE__ */ new Set();
+        const prefetch = (from) => {
+          for (let i = from; i < Math.min(segs.length, from + this.readAhead); i++) {
+            if (ahead.has(i)) continue;
+            ahead.add(i);
+            this.store.get(segs[i].messageId).catch(() => {
+            });
+          }
+        };
+        for (; ; ) {
+          if (signal?.aborted) return;
+          prefetch(index + 1);
+          const from = pos - part.begin;
+          const to = Math.min(part.data.length, endInclusive - part.begin + 1);
+          if (to > from) {
+            yield part.data.subarray(from, to);
+            pos = part.begin + to;
+          }
+          if (pos > endInclusive) return;
+          index++;
+          if (index >= segs.length) throw new Error(`file ends at ${pos}, wanted ${endInclusive + 1}`);
+          part = await this.store.get(segs[index].messageId);
+          if (part.begin !== pos) {
+            ({ index, part } = await this.locate(pos));
+          }
+        }
+      }
+      async locate(offset) {
+        const segs = this.file.segments;
+        let index = Math.min(segs.length - 1, Math.floor(offset / this.partSize));
+        for (let steps = 0; steps < 64; steps++) {
+          const part = await this.store.get(segs[index].messageId);
+          if (offset < part.begin && index > 0) index--;
+          else if (offset >= part.begin + part.data.length && index < segs.length - 1) index++;
+          else return { index, part };
+        }
+        throw new Error(`could not locate offset ${offset} in ${this.file.name}`);
+      }
+    };
+    SpanFile = class {
+      constructor(spans) {
+        this.spans = spans;
+        this.size = spans.reduce((n, s) => n + s.length, 0);
+      }
+      async read(offset, length) {
+        const out = [];
+        for await (const chunk of this.stream(offset, Math.min(this.size, offset + length) - 1)) out.push(chunk);
+        return Buffer.concat(out);
+      }
+      async *stream(start, endInclusive, signal) {
+        let base2 = 0;
+        for (const span of this.spans) {
+          const spanEnd = base2 + span.length - 1;
+          if (spanEnd >= start && base2 <= endInclusive) {
+            const from = Math.max(start, base2) - base2;
+            const to = Math.min(endInclusive, spanEnd) - base2;
+            yield* span.file.stream(span.offset + from, span.offset + to, signal);
+            if (signal?.aborted) return;
+          }
+          base2 += span.length;
+          if (base2 > endInclusive) return;
+        }
+      }
+    };
+  }
+});
+
+// ../rewind_forge/src/usenet/rar.ts
+function rarVersion(head) {
+  if (head.subarray(0, 8).equals(RAR5_SIG)) return 5;
+  if (head.subarray(0, 7).equals(RAR4_SIG)) return 4;
+  return null;
+}
+async function readRarSet(volumes) {
+  const entries = /* @__PURE__ */ new Map();
+  for (const vol of volumes) {
+    const head = await vol.read(0, Math.min(vol.size, 64 * 1024));
+    const version = rarVersion(head);
+    if (!version) throw new RarError("volume is not a RAR archive");
+    const blocks = version === 5 ? await readRar5(vol, head) : await readRar4(vol, head);
+    for (const b of blocks) {
+      let e = entries.get(b.name);
+      if (!e) {
+        e = { name: b.name, size: b.unpSize, spans: [], stored: b.stored, encrypted: b.encrypted };
+        entries.set(b.name, e);
+      }
+      e.stored &&= b.stored;
+      e.encrypted ||= b.encrypted;
+      if (b.dataSize > 0) e.spans.push({ file: vol, offset: b.dataStart, length: b.dataSize });
+    }
+  }
+  return [...entries.values()];
+}
+async function readRar4(vol, head) {
+  const out = [];
+  const reader = new WindowReader(vol, head);
+  let pos = RAR4_SIG.length;
+  while (pos + 7 <= vol.size) {
+    const fixed = await reader.at(pos, 7);
+    const type = fixed[2];
+    const flags = fixed.readUInt16LE(3);
+    const headSize = fixed.readUInt16LE(5);
+    if (headSize < 7) throw new RarError("corrupt RAR4 block header");
+    const h = await reader.at(pos, headSize);
+    if (type === R4_MAIN && flags & 128) {
+      throw new RarError("RAR headers are encrypted (password protected release)");
+    }
+    if (type === R4_END) break;
+    let addSize = flags & R4_LONG_BLOCK ? h.readUInt32LE(7) : 0;
+    if (type === R4_FILE) {
+      let packSize = h.readUInt32LE(7);
+      let unpSize = h.readUInt32LE(11);
+      const method = h[25];
+      const nameSize = h.readUInt16LE(26);
+      let nameAt = 32;
+      if (flags & 256) {
+        packSize += h.readUInt32LE(32) * 2 ** 32;
+        unpSize += h.readUInt32LE(36) * 2 ** 32;
+        nameAt += 8;
+      }
+      addSize = packSize;
+      out.push({
+        name: decodeRar4Name(h.subarray(nameAt, nameAt + nameSize)),
+        unpSize,
+        dataStart: pos + headSize,
+        dataSize: packSize,
+        stored: method === 48,
+        encrypted: !!(flags & 4),
+        splitAfter: !!(flags & 2)
+      });
+      if (flags & 2) break;
+    }
+    pos += headSize + addSize;
+  }
+  return out;
+}
+function decodeRar4Name(raw) {
+  const nul = raw.indexOf(0);
+  const ascii = raw.subarray(0, nul >= 0 ? nul : raw.length);
+  return ascii.toString("utf8").replace(/\\/g, "/").split("/").pop();
+}
+async function readRar5(vol, head) {
+  const out = [];
+  const reader = new WindowReader(vol, head);
+  let pos = RAR5_SIG.length;
+  while (pos + 7 <= vol.size) {
+    const sizeField = new VintReader(await reader.at(pos + 4, 10), 0);
+    const headSize = sizeField.vint();
+    const headerStart = pos + 4 + sizeField.pos;
+    const r = new VintReader(await reader.at(headerStart, headSize), 0);
+    const type = r.vint();
+    const flags = r.vint();
+    const extraSize = flags & 1 ? r.vint() : 0;
+    const dataSize = flags & 2 ? r.vint() : 0;
+    const blockEnd = headerStart + headSize;
+    if (type === R5_ENCRYPTION) throw new RarError("RAR headers are encrypted (password protected release)");
+    if (type === R5_END) break;
+    if (type === R5_FILE) {
+      const fileFlags = r.vint();
+      const unpSize = r.vint();
+      r.vint();
+      if (fileFlags & 2) r.skip(4);
+      if (fileFlags & 4) r.skip(4);
+      const compInfo = r.vint();
+      r.vint();
+      const nameLen = r.vint();
+      const name = r.bytes(nameLen).toString("utf8").split("/").pop();
+      const extra = extraSize ? r.bytes(extraSize) : Buffer.alloc(0);
+      const splitAfter = !!(flags & 16);
+      out.push({
+        name,
+        unpSize,
+        dataStart: blockEnd,
+        dataSize,
+        stored: (compInfo >> 7 & 7) === 0,
+        encrypted: hasRar5EncryptionRecord(extra),
+        splitAfter
+      });
+      if (splitAfter) break;
+    }
+    pos = blockEnd + dataSize;
+  }
+  return out;
+}
+function hasRar5EncryptionRecord(extra) {
+  const r = new VintReader(extra, 0);
+  while (r.pos < extra.length) {
+    const size = r.vint();
+    const start = r.pos;
+    if (r.vint() === 1) return true;
+    r.pos = start + size;
+  }
+  return false;
+}
+var RAR4_SIG, RAR5_SIG, RarError, R4_MAIN, R4_FILE, R4_END, R4_LONG_BLOCK, R5_FILE, R5_ENCRYPTION, R5_END, WindowReader, VintReader;
+var init_rar = __esm({
+  "../rewind_forge/src/usenet/rar.ts"() {
+    "use strict";
+    RAR4_SIG = Buffer.from([82, 97, 114, 33, 26, 7, 0]);
+    RAR5_SIG = Buffer.from([82, 97, 114, 33, 26, 7, 1, 0]);
+    RarError = class extends Error {
+    };
+    R4_MAIN = 115;
+    R4_FILE = 116;
+    R4_END = 123;
+    R4_LONG_BLOCK = 32768;
+    R5_FILE = 2;
+    R5_ENCRYPTION = 4;
+    R5_END = 5;
+    WindowReader = class {
+      constructor(vol, buf) {
+        this.vol = vol;
+        this.buf = buf;
+        this.bufAt = 0;
+      }
+      async at(offset, length) {
+        const len = Math.min(length, this.vol.size - offset);
+        if (offset < this.bufAt || offset + len > this.bufAt + this.buf.length) {
+          this.buf = await this.vol.read(offset, Math.min(this.vol.size - offset, Math.max(len, 64 * 1024)));
+          this.bufAt = offset;
+        }
+        return this.buf.subarray(offset - this.bufAt, offset - this.bufAt + len);
+      }
+    };
+    VintReader = class {
+      constructor(buf, pos) {
+        this.buf = buf;
+        this.pos = pos;
+      }
+      vint() {
+        let v = 0;
+        let mul = 1;
+        for (let i = 0; i < 10; i++) {
+          const b = this.buf[this.pos++];
+          if (b === void 0) throw new RarError("truncated RAR5 header");
+          v += (b & 127) * mul;
+          if (!(b & 128)) return v;
+          mul *= 128;
+        }
+        throw new RarError("bad RAR5 vint");
+      }
+      skip(n) {
+        this.pos += n;
+      }
+      bytes(n) {
+        const b = this.buf.subarray(this.pos, this.pos + n);
+        this.pos += n;
+        return b;
+      }
+    };
+  }
+});
+
+// ../rewind_forge/src/usenet/media.ts
+async function scanNzb(files, store, concurrency, wanted = VIDEO_EXT3) {
+  const problems = [];
+  const candidates = files.map((file, index) => ({ file, index })).filter(({ file }) => !JUNK_EXT.test(file.name) && !/\.vol\d+\+\d+/i.test(file.name));
+  const opened = await mapLimit(candidates, concurrency, async ({ file, index }) => {
+    const reader = await new NzbFileReader(file, store).open();
+    return { index, file, reader, head: await reader.head() };
+  });
+  const layouts = {};
+  for (const o of opened) layouts[o.index] = o.reader.layout;
+  const entries = [];
+  const rarGroups = /* @__PURE__ */ new Map();
+  const splitGroups = /* @__PURE__ */ new Map();
+  for (const o of opened) {
+    const name = o.file.name;
+    if (rarVersion(o.head)) {
+      push(rarGroups, rarStem(name), o);
+    } else if (/\.\d{3}$/.test(name)) {
+      push(splitGroups, name.replace(/\.\d{3}$/, ""), o);
+    } else if (wanted.test(name) || wanted.test(`.${sniffExt(o.head)}`)) {
+      entries.push({
+        name: wanted.test(name) ? name : `${name}.${sniffExt(o.head)}`,
+        size: o.reader.size,
+        spans: [{ nzbIndex: o.index, offset: 0, length: o.reader.size }]
+      });
+    }
+  }
+  for (const [stem, group] of splitGroups) {
+    group.sort((a, b) => splitNumber(a.file.name) - splitNumber(b.file.name));
+    const name = wanted.test(stem) ? stem : `${stem}.${sniffExt(group[0].head)}`;
+    if (!wanted.test(name)) continue;
+    entries.push({
+      name,
+      size: group.reduce((n, o) => n + o.reader.size, 0),
+      spans: group.map((o) => ({ nzbIndex: o.index, offset: 0, length: o.reader.size }))
+    });
+  }
+  for (const group of rarGroups.values()) {
+    group.sort(compareRarVolumes);
+    const readerIndex = new Map(group.map((o) => [o.reader, o.index]));
+    let rarEntries;
+    try {
+      rarEntries = await readRarSet(group.map((o) => o.reader));
+    } catch (err) {
+      if (err instanceof RarError) {
+        problems.push(err.message);
+        continue;
+      }
+      throw err;
+    }
+    for (const e of rarEntries) {
+      if (!wanted.test(e.name)) continue;
+      if (e.encrypted) {
+        problems.push(`${e.name} is password protected`);
+        continue;
+      }
+      if (!e.stored) {
+        problems.push(`${e.name} is compressed inside the RAR (can't stream)`);
+        continue;
+      }
+      const spanBytes = e.spans.reduce((n, s) => n + s.length, 0);
+      if (spanBytes !== e.size) {
+        problems.push(`${e.name}: RAR volumes cover ${spanBytes} of ${e.size} bytes (volumes missing)`);
+        continue;
+      }
+      entries.push({
+        name: e.name,
+        size: e.size,
+        spans: e.spans.map((s) => ({ nzbIndex: readerIndex.get(s.file), offset: s.offset, length: s.length }))
+      });
+    }
+  }
+  const collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" });
+  entries.sort((a, b) => collator.compare(a.name, b.name));
+  return { entries, layouts, problems };
+}
+function openEntry(entry, readers) {
+  const spans = entry.spans.map((s) => ({ file: readers.get(s.nzbIndex), offset: s.offset, length: s.length }));
+  return spans.length === 1 && spans[0].offset === 0 && spans[0].length === spans[0].file.size ? spans[0].file : new SpanFile(spans);
+}
+function sniffExt(head) {
+  if (head.length >= 4 && head.readUInt32BE(0) === 440786851) return "mkv";
+  if (head.length >= 12 && head.toString("latin1", 4, 8) === "ftyp") {
+    const brand = head.toString("latin1", 8, 12);
+    return brand === "M4B " ? "m4b" : brand === "M4A " ? "m4a" : "mp4";
+  }
+  if (head.length >= 58 && head.toString("latin1", 0, 2) === "PK" && head.toString("latin1", 30, 58) === "mimetypeapplication/epub+zip") return "epub";
+  if (head.length >= 5 && head.toString("latin1", 0, 5) === "%PDF-") return "pdf";
+  if (head.length >= 3 && head.toString("latin1", 0, 3) === "ID3") return "mp3";
+  if (head.length >= 12 && head.toString("latin1", 0, 4) === "RIFF" && head.toString("latin1", 8, 11) === "AVI") return "avi";
+  if (head.length >= 377 && head[0] === 71 && head[188] === 71 && head[376] === 71) return "ts";
+  return "bin";
+}
+function rarStem(name) {
+  if (/\.(part\d+\.rar|rar|r\d{2,3})$/i.test(name)) {
+    return name.replace(/\.part\d+\.rar$/i, "").replace(/\.(rar|r\d{2,3})$/i, "").toLowerCase();
+  }
+  return "\0obfuscated";
+}
+function rarVolumeNumber(name) {
+  const part = /\.part(\d+)\.rar$/i.exec(name);
+  if (part) return Number(part[1]);
+  if (/\.rar$/i.test(name)) return 0;
+  const old = /\.r(\d{2,3})$/i.exec(name);
+  if (old) return Number(old[1]) + 1;
+  return null;
+}
+function compareRarVolumes(a, b) {
+  const na = rarVolumeNumber(a.file.name);
+  const nb = rarVolumeNumber(b.file.name);
+  if (na != null && nb != null) return na - nb;
+  return (a.file.subjectIndex ?? a.index) - (b.file.subjectIndex ?? b.index);
+}
+function splitNumber(name) {
+  return Number(/\.(\d{3})$/.exec(name)?.[1] ?? 0);
+}
+function push(m, k, v) {
+  const arr = m.get(k);
+  if (arr) arr.push(v);
+  else m.set(k, [v]);
+}
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+var JUNK_EXT, VIDEO_EXT3, BOOK_EXT;
+var init_media = __esm({
+  "../rewind_forge/src/usenet/media.ts"() {
+    "use strict";
+    init_files();
+    init_rar();
+    JUNK_EXT = /\.(par2|nfo|sfv|srr|nzb|txt|jpe?g|png|gif|url|exe|sample\.\w+)$/i;
+    VIDEO_EXT3 = /\.(mkv|mp4|m4v|avi|ts|m2ts|mov|webm|wmv|mpg|mpeg)$/i;
+    BOOK_EXT = /\.(epub|pdf|cbz|m4b|m4a|mp3|aac|ogg|opus|flac)$/i;
+  }
+});
+
+// ../rewind_forge/src/usenet/nntp.ts
+import net from "node:net";
+import tls from "node:tls";
+function dotUnstuff(raw) {
+  if (raw.indexOf("\n..") < 0 && !(raw[0] === 46 && raw[1] === 46)) return raw;
+  const out = Buffer.allocUnsafe(raw.length);
+  let o = 0;
+  let lineStart = true;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (lineStart && c === 46 && raw[i + 1] === 46) {
+      lineStart = false;
+      continue;
+    }
+    out[o++] = c;
+    lineStart = c === 10;
+  }
+  return out.subarray(0, o);
+}
+var ArticleMissingError, NntpError, DEFAULT_TIMEOUT_MS, TERMINATOR, NntpConnection, NntpPool;
+var init_nntp = __esm({
+  "../rewind_forge/src/usenet/nntp.ts"() {
+    "use strict";
+    ArticleMissingError = class extends Error {
+      constructor(messageId) {
+        super(`article <${messageId}> not found on the provider`);
+        this.messageId = messageId;
+      }
+    };
+    NntpError = class extends Error {
+      constructor(message, code) {
+        super(message);
+        this.code = code;
+      }
+    };
+    DEFAULT_TIMEOUT_MS = 2e4;
+    TERMINATOR = Buffer.from("\r\n.\r\n");
+    NntpConnection = class {
+      constructor(cfg) {
+        this.cfg = cfg;
+        this.socket = null;
+        this.buf = Buffer.alloc(0);
+        this.pending = null;
+        this.statusLine = null;
+        this.scanFrom = 0;
+        this.closed = false;
+      }
+      async connect() {
+        const { host: host2, port, ssl } = this.cfg;
+        const socket = ssl ? tls.connect({ host: host2, port, servername: net.isIP(host2) ? void 0 : host2 }) : net.connect({ host: host2, port });
+        this.socket = socket;
+        socket.setNoDelay(true);
+        socket.on("data", (d) => this.onData(d));
+        socket.on("error", (e) => this.fail(new NntpError(`${host2}:${port} ${e.message}`)));
+        socket.on("close", () => this.fail(new NntpError(`${host2}:${port} connection closed`)));
+        const greeting = await this.read(false);
+        if (greeting.code !== 200 && greeting.code !== 201) {
+          throw new NntpError(`unexpected greeting: ${greeting.line}`, greeting.code);
+        }
+        if (this.cfg.username) {
+          const user = await this.command(`AUTHINFO USER ${this.cfg.username}`);
+          if (user.code === 381) {
+            const pass = await this.command(`AUTHINFO PASS ${this.cfg.password}`);
+            if (pass.code !== 281) throw new NntpError(`login rejected: ${pass.line}`, pass.code);
+          } else if (user.code !== 281) {
+            throw new NntpError(`login rejected: ${user.line}`, user.code);
+          }
+        }
+      }
+      /** Fetch an article body, dot-unstuffed. */
+      async body(messageId) {
+        const r = await this.command(`BODY <${messageId}>`, true);
+        if (r.code === 430) throw new ArticleMissingError(messageId);
+        if (r.code !== 222 || !r.body) throw new NntpError(`BODY failed: ${r.line}`, r.code);
+        return r.body;
+      }
+      /** True when the article exists on the provider. */
+      async stat(messageId) {
+        const r = await this.command(`STAT <${messageId}>`);
+        if (r.code === 223) return true;
+        if (r.code === 430) return false;
+        throw new NntpError(`STAT failed: ${r.line}`, r.code);
+      }
+      close() {
+        if (this.closed) return;
+        this.closed = true;
+        try {
+          this.socket?.end("QUIT\r\n");
+        } catch {
+        }
+        this.socket?.destroy();
+      }
+      async command(line, multiline = false) {
+        if (this.closed || !this.socket) throw new NntpError("connection closed");
+        const p = this.read(multiline);
+        this.socket.write(`${line}\r
+`);
+        return p;
+      }
+      read(multiline) {
+        if (this.pending) return Promise.reject(new NntpError("command already in flight"));
+        return new Promise((resolve2, reject) => {
+          const timeout = this.cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+          const timer = setTimeout(() => {
+            this.fail(new NntpError(`timed out after ${timeout} ms`));
+            this.close();
+          }, timeout);
+          this.pending = {
+            multiline,
+            resolve: (r) => {
+              clearTimeout(timer);
+              resolve2(r);
+            },
+            reject: (e) => {
+              clearTimeout(timer);
+              reject(e);
+            }
+          };
+          this.drain();
+        });
+      }
+      onData(d) {
+        this.buf = this.buf.length ? Buffer.concat([this.buf, d]) : d;
+        this.drain();
+      }
+      drain() {
+        const p = this.pending;
+        if (!p) return;
+        if (!this.statusLine) {
+          const eol = this.buf.indexOf("\r\n");
+          if (eol < 0) return;
+          const line = this.buf.toString("latin1", 0, eol);
+          this.buf = this.buf.subarray(eol + 2);
+          this.statusLine = { code: Number(line.slice(0, 3)), line };
+          this.scanFrom = 0;
+          if (!p.multiline || this.statusLine.code >= 300) return this.finish(void 0);
+        }
+        if (this.buf.length >= 3 && this.buf[0] === 46 && this.buf[1] === 13 && this.buf[2] === 10) {
+          this.buf = this.buf.subarray(3);
+          return this.finish(Buffer.alloc(0));
+        }
+        const end = this.buf.indexOf(TERMINATOR, Math.max(0, this.scanFrom - 4));
+        if (end < 0) {
+          this.scanFrom = this.buf.length;
+          return;
+        }
+        const raw = this.buf.subarray(0, end + 2);
+        this.buf = this.buf.subarray(end + TERMINATOR.length);
+        this.finish(dotUnstuff(raw));
+      }
+      finish(body) {
+        const p = this.pending;
+        const status = this.statusLine;
+        this.pending = null;
+        this.statusLine = null;
+        p.resolve({ ...status, body });
+      }
+      fail(err) {
+        this.closed = true;
+        const p = this.pending;
+        this.pending = null;
+        p?.reject(err);
+      }
+    };
+    NntpPool = class {
+      constructor(cfg, idleMs = 6e4) {
+        this.cfg = cfg;
+        this.idleMs = idleMs;
+        this.idle = [];
+        this.open = 0;
+        this.waiters = [];
+        this.idleTimers = /* @__PURE__ */ new Map();
+        this.destroyed = false;
+      }
+      async run(fn, signal) {
+        for (let attempt = 0; ; attempt++) {
+          const conn = await this.acquire(signal);
+          try {
+            const out = await fn(conn);
+            this.release(conn);
+            return out;
+          } catch (err) {
+            if (err instanceof ArticleMissingError) {
+              this.release(conn);
+              throw err;
+            }
+            this.discard(conn);
+            if (attempt >= 1 || this.destroyed) throw err;
+          }
+        }
+      }
+      destroy() {
+        this.destroyed = true;
+        for (const c of this.idle) c.close();
+        this.idle = [];
+        for (const t of this.idleTimers.values()) clearTimeout(t);
+        this.idleTimers.clear();
+        for (const w of this.waiters.splice(0)) w(null);
+      }
+      get stats() {
+        return { open: this.open, idle: this.idle.length, waiting: this.waiters.length };
+      }
+      async acquire(signal) {
+        if (this.destroyed) throw new NntpError("pool destroyed");
+        while (this.idle.length) {
+          const c2 = this.idle.pop();
+          clearTimeout(this.idleTimers.get(c2));
+          this.idleTimers.delete(c2);
+          if (!c2.closed) return c2;
+          this.open--;
+        }
+        if (this.open < Math.max(1, this.cfg.connections)) {
+          this.open++;
+          const c2 = new NntpConnection(this.cfg);
+          try {
+            await c2.connect();
+            return c2;
+          } catch (err) {
+            this.open--;
+            c2.close();
+            this.wakeOne();
+            throw err;
+          }
+        }
+        const c = await new Promise((resolve2, reject) => {
+          const onAbort = () => {
+            this.waiters = this.waiters.filter((w) => w !== waiter);
+            reject(new NntpError("aborted"));
+          };
+          const waiter = (conn) => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve2(conn);
+          };
+          if (signal?.aborted) return onAbort();
+          signal?.addEventListener("abort", onAbort, { once: true });
+          this.waiters.push(waiter);
+        });
+        if (!c) return this.acquire(signal);
+        return c;
+      }
+      release(c) {
+        if (c.closed || this.destroyed) return this.discard(c);
+        const w = this.waiters.shift();
+        if (w) return w(c);
+        this.idle.push(c);
+        this.idleTimers.set(c, setTimeout(() => {
+          this.idle = this.idle.filter((x) => x !== c);
+          this.idleTimers.delete(c);
+          this.open--;
+          c.close();
+        }, this.idleMs));
+      }
+      discard(c) {
+        c.close();
+        this.open--;
+        this.wakeOne();
+      }
+      /** A slot freed up — let one waiter open a new connection. */
+      wakeOne() {
+        const w = this.waiters.shift();
+        if (w) w(null);
+      }
+    };
+  }
+});
+
+// ../rewind_forge/src/usenet/nzb.ts
+function parseNzb(xml) {
+  const files = [];
+  const fileRe = /<file\b([^>]*)>([\s\S]*?)<\/file>/gi;
+  let m;
+  while ((m = fileRe.exec(xml)) !== null) {
+    const subject = decodeEntities(/\bsubject="([^"]*)"/i.exec(m[1])?.[1] ?? "");
+    const inner = m[2];
+    const groups = [...inner.matchAll(/<group>([\s\S]*?)<\/group>/gi)].map((g2) => g2[1].trim());
+    const segments = [];
+    for (const s of inner.matchAll(/<segment\b([^>]*)>([\s\S]*?)<\/segment>/gi)) {
+      const attrs = s[1];
+      const number = Number(/\bnumber="(\d+)"/i.exec(attrs)?.[1] ?? 0);
+      const bytes = Number(/\bbytes="(\d+)"/i.exec(attrs)?.[1] ?? 0);
+      const messageId = decodeEntities(s[2].trim()).replace(/^<|>$/g, "");
+      if (messageId) segments.push({ number, bytes, messageId });
+    }
+    if (!segments.length) continue;
+    segments.sort((a, b) => a.number - b.number);
+    files.push({
+      subject,
+      name: nameFromSubject(subject),
+      subjectIndex: indexFromSubject(subject),
+      groups,
+      segments: dedupeSegments(segments)
+    });
+  }
+  return files;
+}
+function dedupeSegments(segs) {
+  const out = [];
+  let last = -1;
+  for (const s of segs) {
+    if (s.number === last) continue;
+    out.push(s);
+    last = s.number;
+  }
+  return out;
+}
+function nameFromSubject(subject) {
+  const quoted = /"([^"]+)"/.exec(subject)?.[1];
+  if (quoted) return quoted.trim();
+  const bare = /([^\s"]+\.[a-z0-9]{2,4})(?=\s|$)/i.exec(subject.replace(/\byEnc\b.*$/i, ""))?.[1];
+  return (bare ?? subject).trim();
+}
+function indexFromSubject(subject) {
+  const m = /[[(](\d+)\s*\/\s*\d+[\])]/.exec(subject);
+  return m ? Number(m[1]) : null;
+}
+function decodeEntities(s) {
+  return s.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16))).replace(/&amp;/g, "&");
+}
+var init_nzb = __esm({
+  "../rewind_forge/src/usenet/nzb.ts"() {
+    "use strict";
+  }
+});
+
+// ../rewind_forge/src/usenet/yenc.ts
+function decodeYenc(body) {
+  const beginAt = body.indexOf("=ybegin ");
+  if (beginAt < 0) throw new YencError("article is not yEnc (no =ybegin)");
+  const beginEol = lineEnd(body, beginAt);
+  const header = body.toString("latin1", beginAt, beginEol);
+  const fileSize = numAttr(header, "size");
+  const name = /\bname=(.*)$/.exec(header)?.[1]?.trim() ?? "";
+  if (fileSize == null) throw new YencError("=ybegin without size");
+  let pos = skipEol(body, beginEol);
+  let begin = 0;
+  let partEnd = null;
+  if (body.toString("latin1", pos, pos + 7) === "=ypart ") {
+    const partEol = lineEnd(body, pos);
+    const partLine = body.toString("latin1", pos, partEol);
+    begin = (numAttr(partLine, "begin") ?? 1) - 1;
+    const end = numAttr(partLine, "end");
+    partEnd = end ?? null;
+    pos = skipEol(body, partEol);
+  }
+  let dataEnd = body.indexOf("\r\n=yend", pos - 2);
+  if (dataEnd < 0) dataEnd = body.indexOf("\n=yend", pos - 1);
+  if (dataEnd < 0) dataEnd = body.length;
+  const expected = partEnd != null ? partEnd - begin : dataEnd - pos;
+  const out = Buffer.allocUnsafe(Math.max(expected, 0) + 64);
+  let o = 0;
+  for (let i = pos; i < dataEnd; i++) {
+    let c = body[i];
+    if (c === CR || c === LF) continue;
+    if (c === EQ) {
+      i++;
+      if (i >= dataEnd) break;
+      c = body[i] - 64 & 255;
+    }
+    if (o >= out.length) throw new YencError("decoded data overflows =ypart range");
+    out[o++] = c - 42 & 255;
+  }
+  if (partEnd != null && o !== partEnd - begin) {
+    throw new YencError(`part decoded to ${o} bytes, =ypart says ${partEnd - begin}`);
+  }
+  return { data: out.subarray(0, o), begin, fileSize, name };
+}
+function numAttr(line, key) {
+  const m = new RegExp(`\\b${key}=(\\d+)`).exec(line);
+  return m ? Number(m[1]) : void 0;
+}
+function lineEnd(buf, from) {
+  const i = buf.indexOf(LF, from);
+  if (i < 0) return buf.length;
+  return i > from && buf[i - 1] === CR ? i - 1 : i;
+}
+function skipEol(buf, eol) {
+  let p = eol;
+  if (buf[p] === CR) p++;
+  if (buf[p] === LF) p++;
+  return p;
+}
+var CR, LF, EQ, YencError;
+var init_yenc = __esm({
+  "../rewind_forge/src/usenet/yenc.ts"() {
+    "use strict";
+    CR = 13;
+    LF = 10;
+    EQ = 61;
+    YencError = class extends Error {
+    };
+  }
+});
+
+// ../rewind_forge/src/usenet/segments.ts
+var SegmentStore;
+var init_segments = __esm({
+  "../rewind_forge/src/usenet/segments.ts"() {
+    "use strict";
+    init_yenc();
+    SegmentStore = class {
+      constructor(pool, maxCacheBytes = 256 * 1024 * 1024) {
+        this.pool = pool;
+        this.maxCacheBytes = maxCacheBytes;
+        this.cache = /* @__PURE__ */ new Map();
+        this.cachedBytes = 0;
+        this.inflight = /* @__PURE__ */ new Map();
+      }
+      get(messageId) {
+        const hit = this.cache.get(messageId);
+        if (hit) {
+          this.cache.delete(messageId);
+          this.cache.set(messageId, hit);
+          return Promise.resolve(hit);
+        }
+        const running = this.inflight.get(messageId);
+        if (running) return running;
+        const p = this.pool.run((c) => c.body(messageId)).then((body) => {
+          const part = decodeYenc(body);
+          this.put(messageId, part);
+          return part;
+        }).finally(() => this.inflight.delete(messageId));
+        this.inflight.set(messageId, p);
+        return p;
+      }
+      /** Is the article still on the provider? (cheap: no body transfer) */
+      exists(messageId) {
+        if (this.cache.has(messageId)) return Promise.resolve(true);
+        return this.pool.run((c) => c.stat(messageId));
+      }
+      put(id, part) {
+        this.cache.set(id, part);
+        this.cachedBytes += part.data.length;
+        while (this.cachedBytes > this.maxCacheBytes && this.cache.size > 1) {
+          const [oldId, old] = this.cache.entries().next().value;
+          this.cache.delete(oldId);
+          this.cachedBytes -= old.data.length;
+        }
+      }
+    };
+  }
+});
+
+// ../rewind_forge/src/usenet/verdicts.ts
+import { createHash as createHash2 } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+function classifyFailure(message) {
+  if (/sampled articles are gone|not found on the provider|volumes missing/i.test(message)) return "missing";
+  if (/password|encrypted|compressed inside the RAR/i.test(message)) return "locked";
+  if (/no playable video|no book files|NZB has no files|no streamable video/i.test(message)) return "empty";
+  return null;
+}
+var DAY, TTL, GOOD_TTL, CHECKED_TTL, MAX_ENTRIES, VerdictStore;
+var init_verdicts = __esm({
+  "../rewind_forge/src/usenet/verdicts.ts"() {
+    "use strict";
+    DAY = 864e5;
+    TTL = { missing: 14 * DAY, locked: 365 * DAY, empty: 365 * DAY };
+    GOOD_TTL = 30 * DAY;
+    CHECKED_TTL = 3 * DAY;
+    MAX_ENTRIES = 2e4;
+    VerdictStore = class _VerdictStore {
+      constructor(file) {
+        this.file = file;
+        this.map = null;
+        this.saving = null;
+        this.dirty = false;
+      }
+      static key(nzbUrl) {
+        return createHash2("sha1").update(nzbUrl).digest("hex").slice(0, 20);
+      }
+      async get(nzbUrl) {
+        const map = await this.load();
+        const v = map.get(_VerdictStore.key(nzbUrl));
+        if (!v) return null;
+        const ttl = v.ok ? v.checked ? CHECKED_TTL : GOOD_TTL : TTL[v.reason];
+        if (Date.now() - v.at > ttl) {
+          map.delete(_VerdictStore.key(nzbUrl));
+          return null;
+        }
+        return v;
+      }
+      async isBad(nzbUrl) {
+        return (await this.get(nzbUrl))?.ok === false;
+      }
+      async good(nzbUrl) {
+        await this.set(nzbUrl, { ok: true, at: Date.now() });
+      }
+      /** Screened alive (never downgrades a release that already streamed). */
+      async checked(nzbUrl) {
+        if ((await this.get(nzbUrl))?.ok) return;
+        await this.set(nzbUrl, { ok: true, at: Date.now(), checked: true });
+      }
+      async bad(nzbUrl, reason) {
+        await this.set(nzbUrl, { ok: false, reason, at: Date.now() });
+      }
+      async set(nzbUrl, v) {
+        const map = await this.load();
+        const k = _VerdictStore.key(nzbUrl);
+        map.delete(k);
+        map.set(k, v);
+        while (map.size > MAX_ENTRIES) map.delete(map.keys().next().value);
+        this.dirty = true;
+        await this.flush();
+      }
+      async load() {
+        if (this.map) return this.map;
+        try {
+          this.map = new Map(Object.entries(JSON.parse(await readFile(this.file, "utf8"))));
+        } catch {
+          this.map = /* @__PURE__ */ new Map();
+        }
+        return this.map;
+      }
+      async flush() {
+        if (this.saving) return this.saving;
+        this.saving = (async () => {
+          while (this.dirty) {
+            this.dirty = false;
+            await mkdir(path.dirname(this.file), { recursive: true });
+            await writeFile(this.file, JSON.stringify(Object.fromEntries(this.map ?? [])));
+          }
+        })().finally(() => {
+          this.saving = null;
+        });
+        return this.saving;
+      }
+    };
+  }
+});
+
+// ../rewind_forge/src/usenet/engine.ts
+import { createHash as createHash3 } from "node:crypto";
+import { mkdir as mkdir2, readFile as readFile2, writeFile as writeFile2 } from "node:fs/promises";
+import path2 from "node:path";
+async function fetchNzb(url, signal) {
+  let res;
+  try {
+    res = await fetch(url, {
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(2e4)]) : AbortSignal.timeout(2e4),
+      headers: { "User-Agent": "Rewind" }
+    });
+  } catch (err) {
+    throw new Error(`NZB download failed (${describeFetchFailure(err)}) from ${redactUrl(url)}`);
+  }
+  if (!res.ok) {
+    const hint = res.status === 429 ? " \u2014 indexer API/grab limit reached" : "";
+    throw new Error(`NZB download \u2192 HTTP ${res.status}${hint} from ${redactUrl(url)}`);
+  }
+  const text = await res.text();
+  if (!/<nzb\b/i.test(text)) throw new Error(`indexer did not return an NZB (${text.slice(0, 120).replace(/\s+/g, " ")})`);
+  return text;
+}
+function jobIdFor(mode, nzbUrl) {
+  const key = mode === "video" ? nzbUrl : `${mode}\0${nzbUrl}`;
+  return createHash3("sha1").update(key).digest("hex").slice(0, 20);
+}
+function cleanNzbUrl(url) {
+  let out = url.trim();
+  for (let i = 0; i < 2 && out.includes("&amp;"); i++) out = out.replace(/&amp;/g, "&");
+  return out;
+}
+var WANTED, HEALTH_SAMPLE, SCREEN_SAMPLE, UsenetEngine;
+var init_engine = __esm({
+  "../rewind_forge/src/usenet/engine.ts"() {
+    "use strict";
+    init_log2();
+    init_base2();
+    init_base();
+    init_files();
+    init_media();
+    init_nntp();
+    init_nzb();
+    init_segments();
+    init_verdicts();
+    WANTED = { video: VIDEO_EXT3, book: BOOK_EXT };
+    HEALTH_SAMPLE = 24;
+    SCREEN_SAMPLE = 12;
+    UsenetEngine = class {
+      constructor(cfg, dir) {
+        this.cfg = cfg;
+        this.dir = dir;
+        this.jobs = /* @__PURE__ */ new Map();
+        this.preparing = /* @__PURE__ */ new Map();
+        this.pool = new NntpPool(cfg);
+        this.store = new SegmentStore(this.pool);
+        this.verdicts = new VerdictStore(path2.join(dir, "verdicts.json"));
+      }
+      /** Run a prepare and remember whether the release works (see verdicts.ts). */
+      async judged(nzbUrl, run) {
+        try {
+          const out = await run();
+          await this.verdicts.good(nzbUrl).catch(() => {
+          });
+          return out;
+        } catch (err) {
+          const reason = classifyFailure(err.message ?? "");
+          if (reason) await this.verdicts.bad(nzbUrl, reason).catch(() => {
+          });
+          throw err;
+        }
+      }
+      destroy() {
+        this.pool.destroy();
+      }
+      prepare(rawUrl, hint, signal) {
+        const nzbUrl = cleanNzbUrl(rawUrl);
+        return this.judged(nzbUrl, () => this.prepareVideo(nzbUrl, hint, signal));
+      }
+      async prepareVideo(nzbUrl, hint, signal) {
+        const jobId = jobIdFor("video", nzbUrl);
+        const job = await this.loadOrBuild(jobId, nzbUrl, "video", signal);
+        const chosen = pickFileForEpisode(
+          job.saved.entries.map((e, i) => ({ id: i, name: e.name, size: e.size })),
+          hint
+        );
+        if (!chosen) throw new Error("release has no streamable video");
+        const entry = job.saved.entries[chosen.id];
+        await this.checkHealth(job, [entry]);
+        return { jobId, fileIndex: chosen.id, name: entry.name, size: entry.size };
+      }
+      /** Every book file in the release (an ebook, or an audiobook's parts). */
+      prepareBook(rawUrl, signal) {
+        const nzbUrl = cleanNzbUrl(rawUrl);
+        return this.judged(nzbUrl, async () => {
+          const jobId = jobIdFor("book", nzbUrl);
+          const job = await this.loadOrBuild(jobId, nzbUrl, "book", signal);
+          await this.checkHealth(job, job.saved.entries);
+          return job.saved.entries.map((e, i) => ({ jobId, fileIndex: i, name: e.name, size: e.size }));
+        });
+      }
+      /**
+       * Is this release still on the provider? Grabs the NZB (saved — a later
+       * prepare reuses it, no second grab) and STATs an even sample of its data
+       * articles. Dead → a "missing" verdict; alive → "checked". Indexer or
+       * provider trouble → "unknown" (offered, nothing recorded).
+       */
+      async screen(rawUrl, signal) {
+        const nzbUrl = cleanNzbUrl(rawUrl);
+        const known = await this.verdicts.get(nzbUrl);
+        if (known) return known.ok ? "alive" : "missing";
+        try {
+          const nzb = await this.nzbFor(jobIdFor("video", nzbUrl), nzbUrl, signal);
+          const data = nzb.filter((f) => !/\.par2\b|\.(nfo|sfv|srr)\b/i.test(`${f.name} ${f.subject}`));
+          const ids = (data.length ? data : nzb).flatMap((f) => f.segments.map((s) => s.messageId));
+          if (!ids.length) return "unknown";
+          const step = Math.max(1, Math.floor(ids.length / SCREEN_SAMPLE));
+          const sample = ids.filter((_, i) => i % step === 0).slice(0, SCREEN_SAMPLE);
+          sample.push(ids[ids.length - 1]);
+          const results = await mapLimit(
+            sample,
+            Math.min(4, this.cfg.connections),
+            (id) => this.store.exists(id).catch((err) => err instanceof ArticleMissingError ? false : Promise.reject(err))
+          );
+          if (results.some((ok) => !ok)) {
+            await this.verdicts.bad(nzbUrl, "missing").catch(() => {
+            });
+            return "missing";
+          }
+          await this.verdicts.checked(nzbUrl).catch(() => {
+          });
+          return "alive";
+        } catch {
+          return "unknown";
+        }
+      }
+      async open(jobId, fileIndex) {
+        if (!/^[0-9a-f]{20}$/.test(jobId)) return null;
+        const job = this.jobs.get(jobId) ?? await this.loadSaved(jobId);
+        const entry = job?.saved.entries[fileIndex];
+        if (!job || !entry) return null;
+        return openEntry(entry, job.readers);
+      }
+      // ─── Jobs ──────────────────────────────────────────────────────────────────
+      loadOrBuild(jobId, nzbUrl, mode, signal) {
+        const live = this.jobs.get(jobId);
+        if (live) return Promise.resolve(live);
+        const running = this.preparing.get(jobId);
+        if (running) return running;
+        const p = (async () => await this.loadSaved(jobId) ?? await this.build(jobId, nzbUrl, mode, signal))().finally(() => this.preparing.delete(jobId));
+        this.preparing.set(jobId, p);
+        return p;
+      }
+      async build(jobId, nzbUrl, mode, signal) {
+        const t0 = Date.now();
+        const nzb = await this.nzbFor(jobId, nzbUrl, signal);
+        const scan = await scanNzb(nzb, this.store, this.cfg.connections, WANTED[mode]);
+        for (const p of scan.problems) logger2.warn("streams", `Usenet: ${p}`);
+        if (!scan.entries.length) {
+          throw new Error(scan.problems[0] ?? `no ${mode === "book" ? "book files" : "playable video"} in this release`);
+        }
+        const saved = {
+          version: 1,
+          nzbUrl,
+          createdAt: Date.now(),
+          layouts: scan.layouts,
+          entries: scan.entries
+        };
+        await writeFile2(path2.join(this.dir, `${jobId}.json`), JSON.stringify(saved));
+        logger2.info(
+          "streams",
+          `Usenet: indexed ${nzb.length} posted files \u2192 ${scan.entries.length} playable in ${Date.now() - t0} ms`
+        );
+        return this.activate(jobId, saved, nzb);
+      }
+      /** The job's NZB: saved copy (screening grabbed it) or a fresh grab. */
+      async nzbFor(jobId, nzbUrl, signal) {
+        const file = path2.join(this.dir, `${jobId}.nzb`);
+        const saved = await readFile2(file, "utf8").catch(() => null);
+        if (saved) {
+          const nzb2 = parseNzb(saved);
+          if (nzb2.length) return nzb2;
+        }
+        const xml = await fetchNzb(nzbUrl, signal);
+        const nzb = parseNzb(xml);
+        if (!nzb.length) throw new Error("NZB has no files");
+        await mkdir2(this.dir, { recursive: true });
+        await writeFile2(file, xml);
+        return nzb;
+      }
+      async loadSaved(jobId) {
+        try {
+          const [json, xml] = await Promise.all([
+            readFile2(path2.join(this.dir, `${jobId}.json`), "utf8"),
+            readFile2(path2.join(this.dir, `${jobId}.nzb`), "utf8")
+          ]);
+          const saved = JSON.parse(json);
+          if (saved.version !== 1) return null;
+          return this.activate(jobId, saved, parseNzb(xml));
+        } catch {
+          return null;
+        }
+      }
+      async activate(jobId, saved, nzb) {
+        const readers = /* @__PURE__ */ new Map();
+        for (const [idx, layout] of Object.entries(saved.layouts)) {
+          const i = Number(idx);
+          if (nzb[i]) readers.set(i, await new NzbFileReader(nzb[i], this.store).open(layout));
+        }
+        const job = { saved, nzb, readers };
+        this.jobs.set(jobId, job);
+        return job;
+      }
+      /**
+       * STAT an even sample of the articles behind `entry`. Any missing article
+       * means a hole in the video — fail now so the picker can try the next
+       * release instead of the player freezing at minute 40.
+       */
+      async checkHealth(job, entries) {
+        const ids = [];
+        const used = [...new Set(entries.flatMap((e) => e.spans.map((s) => s.nzbIndex)))];
+        for (const i of used) for (const s of job.nzb[i]?.segments ?? []) ids.push(s.messageId);
+        if (!ids.length) return;
+        const step = Math.max(1, Math.floor(ids.length / HEALTH_SAMPLE));
+        const sample = ids.filter((_, i) => i % step === 0);
+        sample.push(ids[ids.length - 1]);
+        const results = await mapLimit(
+          sample,
+          this.cfg.connections,
+          (id) => this.store.exists(id).catch((err) => err instanceof ArticleMissingError ? false : Promise.reject(err))
+        );
+        const missing = results.filter((ok) => !ok).length;
+        if (missing) {
+          throw new Error(
+            `${missing}/${sample.length} sampled articles are gone from your provider (release expired or taken down)`
+          );
+        }
+      }
+    };
+  }
+});
+
+// ../rewind_forge/src/usenet/server.ts
+import http from "node:http";
+function createStreamServer(open) {
+  return http.createServer((req, res) => {
+    handle(open, req, res).catch((err) => {
+      logger2.warn("streams", `Usenet stream error: ${err.message}`);
+      if (!res.headersSent) {
+        res.writeHead(502, { "Content-Type": "text/plain" });
+        res.end(err.message);
+      } else {
+        res.destroy();
+      }
+    });
+  });
+}
+async function handle(open, req, res) {
+  const m = /^\/usenet\/([0-9a-f]{20})\/(\d+)\/([^/?]*)/.exec(req.url ?? "");
+  if (!m || req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(404).end();
+    return;
+  }
+  const file = await open(m[1], Number(m[2]));
+  if (!file) {
+    res.writeHead(404).end();
+    return;
+  }
+  const ext = /\.([a-z0-9]+)$/i.exec(decodeURIComponent(m[3]))?.[1]?.toLowerCase() ?? "";
+  const headers = {
+    "Accept-Ranges": "bytes",
+    "Content-Type": MIME[ext] ?? "application/octet-stream"
+  };
+  const range = parseRange(req.headers.range, file.size);
+  if (range === "invalid") {
+    res.writeHead(416, { "Content-Range": `bytes */${file.size}` }).end();
+    return;
+  }
+  const [start, end] = range ?? [0, file.size - 1];
+  headers["Content-Length"] = end - start + 1;
+  if (range) headers["Content-Range"] = `bytes ${start}-${end}/${file.size}`;
+  res.writeHead(range ? 206 : 200, headers);
+  if (req.method === "HEAD" || file.size === 0) {
+    res.end();
+    return;
+  }
+  const ac = new AbortController();
+  res.on("close", () => ac.abort());
+  for await (const chunk of file.stream(start, end, ac.signal)) {
+    if (ac.signal.aborted) return;
+    if (!res.write(chunk)) {
+      await new Promise((resolve2) => {
+        const done = () => {
+          res.off("drain", done);
+          res.off("close", done);
+          resolve2();
+        };
+        res.on("drain", done);
+        res.on("close", done);
+      });
+    }
+  }
+  res.end();
+}
+function parseRange(header, size) {
+  if (!header) return null;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m || !m[1] && !m[2]) return "invalid";
+  let start;
+  let end;
+  if (!m[1]) {
+    const n = Number(m[2]);
+    start = Math.max(0, size - n);
+    end = size - 1;
+  } else {
+    start = Number(m[1]);
+    end = m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
+  }
+  if (start >= size || start > end) return "invalid";
+  return [start, end];
+}
+var MIME;
+var init_server = __esm({
+  "../rewind_forge/src/usenet/server.ts"() {
+    "use strict";
+    init_log2();
+    MIME = {
+      mkv: "video/x-matroska",
+      mp4: "video/mp4",
+      m4v: "video/mp4",
+      avi: "video/x-msvideo",
+      ts: "video/mp2t",
+      m2ts: "video/mp2t",
+      mov: "video/quicktime",
+      webm: "video/webm"
+    };
+  }
+});
+
+// ../rewind_forge/src/usenet/service.ts
+import os from "node:os";
+import path3 from "node:path";
+async function readUsenetSettings(overrides) {
+  if (!hasForgeHost()) return null;
+  const cfg = { ...await getForgeHost().getAddonConfig?.() ?? {} };
+  for (const [k, v] of Object.entries(overrides ?? {})) if (v.trim()) cfg[k] = v;
+  const host2 = (cfg.usenet_host ?? "").trim();
+  if (!host2) return null;
+  const ssl = !/^(0|false|no|off)$/i.test((cfg.usenet_ssl ?? "true").trim());
+  return {
+    host: host2,
+    port: positive(cfg.usenet_port) ?? (ssl ? 563 : 119),
+    ssl,
+    username: (cfg.usenet_username ?? "").trim(),
+    password: cfg.usenet_password ?? "",
+    connections: positive(cfg.usenet_connections) ?? 10,
+    streamPort: positive(cfg.usenet_stream_port) ?? DEFAULT_STREAM_PORT
+  };
+}
+async function getUsenetEngine() {
+  const s = await readUsenetSettings();
+  if (!s) return null;
+  const { streamPort, ...nntp } = s;
+  const key = JSON.stringify(nntp);
+  if (shared.engine?.key !== key || shared.engine.owner !== THIS_MODULE) {
+    shared.engine?.engine.destroy();
+    shared.engine = { key, engine: new UsenetEngine(nntp, jobsDir()), owner: THIS_MODULE };
+  }
+  await ensureServer(streamPort);
+  return { engine: shared.engine.engine, streamPort };
+}
+async function ensureServer(port) {
+  if (shared.server?.port === port) return shared.server.ready;
+  const old = shared.server;
+  shared.server = null;
+  if (old) await new Promise((r) => old.server.close(() => r()));
+  const srv = createStreamServer((jobId, idx) => shared.open ? shared.open(jobId, idx) : Promise.resolve(null));
+  const ready = new Promise((resolve2, reject) => {
+    srv.once("error", (err) => {
+      logger2.error("streams", `Usenet stream server could not listen on 127.0.0.1:${port}: ${err.message}`, err);
+      if (shared.server?.server === srv) shared.server = null;
+      reject(err);
+    });
+    srv.listen(port, "127.0.0.1", () => {
+      logger2.info("streams", `Usenet stream server listening on 127.0.0.1:${port}`);
+      resolve2();
+    });
+  });
+  shared.server = { port, server: srv, ready };
+  return ready;
+}
+function jobsDir() {
+  const base2 = hasForgeHost() && getForgeHost().dataDir || path3.join(os.tmpdir(), "rewind");
+  return path3.join(base2, "addons", "forge", "usenet");
+}
+function positive(v) {
+  const n = Number((v ?? "").trim());
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : void 0;
+}
+var DEFAULT_STREAM_PORT, g, shared, THIS_MODULE;
+var init_service = __esm({
+  "../rewind_forge/src/usenet/service.ts"() {
+    "use strict";
+    init_host2();
+    init_log2();
+    init_engine();
+    init_nntp();
+    init_server();
+    DEFAULT_STREAM_PORT = 47810;
+    g = globalThis;
+    shared = g.__rewindForgeUsenet ??= { engine: null, server: null, open: null };
+    THIS_MODULE = /* @__PURE__ */ Symbol("forge-usenet");
+    shared.open = async (jobId, idx) => {
+      const e = shared.engine?.owner === THIS_MODULE ? shared.engine.engine : (await getUsenetEngine())?.engine;
+      return e ? e.open(jobId, idx) : null;
+    };
+  }
+});
+
+// ../rewind_forge/src/resolvers/usenet.ts
+var UsenetResolver;
+var init_usenet = __esm({
+  "../rewind_forge/src/resolvers/usenet.ts"() {
+    "use strict";
+    init_log2();
+    init_service();
+    UsenetResolver = class {
+      constructor() {
+        this.provider = "usenet";
+        this.accepts = ["usenet"];
+        this.rejected = /* @__PURE__ */ new Set();
+      }
+      async checkAvailability(candidates) {
+        const svc = await getUsenetEngine();
+        const out = /* @__PURE__ */ new Map();
+        for (const c of candidates) {
+          if (!c.nzbId) continue;
+          if (svc && await svc.engine.verdicts.isBad(c.nzbId)) {
+            this.rejected.add(c.id);
+            continue;
+          }
+          out.set(c.id, true);
+        }
+        return out;
+      }
+      async resolve(candidate, signal, hint) {
+        if (!candidate.nzbId) return null;
+        const svc = await getUsenetEngine();
+        if (!svc) {
+          logger2.warn("streams", "Usenet: no provider configured \u2014 set Usenet Provider host + login under API Keys");
+          return null;
+        }
+        try {
+          const f = await svc.engine.prepare(candidate.nzbId, hint, signal);
+          return `http://127.0.0.1:${svc.streamPort}/usenet/${f.jobId}/${f.fileIndex}/${encodeURIComponent(f.name)}`;
+        } catch (err) {
+          logger2.warn("streams", `Usenet: can't stream "${candidate.rawTitle}": ${err.message}`);
+          return null;
+        }
+      }
+    };
+  }
+});
+
 // ../rewind_forge/src/resolvers/index.ts
 function buildResolver(row) {
   const factory = FACTORIES[row.provider];
@@ -5461,6 +6895,7 @@ var init_resolvers = __esm({
     init_putio();
     init_realdebrid();
     init_torbox();
+    init_usenet();
     FACTORIES = {
       realdebrid: (row) => new RealDebridResolver(row),
       alldebrid: (row) => new AllDebridResolver(row),
@@ -5471,7 +6906,8 @@ var init_resolvers = __esm({
       offcloud: (row) => new OffcloudResolver(row),
       putio: (row) => new PutioResolver(row),
       nzbdav: (row) => new NzbDavResolver(row),
-      altmount: (row) => new AltMountResolver(row)
+      altmount: (row) => new AltMountResolver(row),
+      usenet: () => new UsenetResolver()
     };
     RESOLVER_PROVIDERS = Object.keys(FACTORIES);
     PROVIDER_NAMES = {
@@ -5484,7 +6920,8 @@ var init_resolvers = __esm({
       offcloud: "Offcloud",
       putio: "put.io",
       nzbdav: "NZBDav",
-      altmount: "AltMount"
+      altmount: "AltMount",
+      usenet: "Usenet"
     };
     PROVIDER_TAGS = {
       realdebrid: "RD",
@@ -5496,7 +6933,8 @@ var init_resolvers = __esm({
       offcloud: "OC",
       putio: "PIO",
       nzbdav: "NZB",
-      altmount: "ALT"
+      altmount: "ALT",
+      usenet: "NNTP"
     };
   }
 });
@@ -5529,10 +6967,10 @@ function cmpForKey(key) {
       return () => 0;
   }
 }
-function sortStreams(streams, prefs) {
-  if (prefs.sortOrder.length === 0) return streams;
+function sortStreams(streams2, prefs) {
+  if (prefs.sortOrder.length === 0) return streams2;
   const userCmps = prefs.sortOrder.map(cmpForKey);
-  return [...streams].sort((a, b) => {
+  return [...streams2].sort((a, b) => {
     const aPack = a.seasonPack ? 1 : 0;
     const bPack = b.seasonPack ? 1 : 0;
     if (aPack !== bPack) return aPack - bPack;
@@ -5543,12 +6981,12 @@ function sortStreams(streams, prefs) {
     return 0;
   });
 }
-function pinReleaseGroup(streams, preferredGroup, opts) {
-  if (!preferredGroup) return streams;
+function pinReleaseGroup(streams2, preferredGroup, opts) {
+  if (!preferredGroup) return streams2;
   const target = preferredGroup.toLowerCase();
   const matches = [];
   const rest = [];
-  for (const s of streams) {
+  for (const s of streams2) {
     if (s.releaseGroup && s.releaseGroup.toLowerCase() === target) {
       matches.push(s);
     } else {
@@ -5623,6 +7061,11 @@ function buildCandidate(row, s) {
   const extractedHash = directHash ?? extractInfoHashFromCometPlaybackUrl(s.url);
   const dropProxyUrl = !!extractedHash && !directHash;
   const localKey = extractedHash ? `${extractedHash}:${s.fileIdx ?? 0}` : s.url ?? "";
+  const text = `${s.title ?? ""}
+${s.description ?? ""}`;
+  const hinted = s.behaviorHints?.videoSize;
+  const sizeBytes = typeof hinted === "number" && hinted > 0 ? hinted : parseSizeBytes(text);
+  const seeders = parseSeeders(text);
   return {
     id: candidateId(row.id, localKey),
     sourceType: "comet",
@@ -5632,6 +7075,8 @@ function buildCandidate(row, s) {
     rawTitle,
     url: dropProxyUrl ? void 0 : s.url ?? void 0,
     infoHash: extractedHash ?? void 0,
+    sizeBytes: sizeBytes ?? void 0,
+    seeders: seeders ?? void 0,
     bingeGroup: s.behaviorHints?.bingeGroup,
     meta: { fileIdx: s.fileIdx, trackers: s.sources }
   };
@@ -5642,6 +7087,7 @@ var init_comet = __esm({
     "use strict";
     init_host2();
     init_base();
+    init_parser2();
     DEFAULT_HOST = "https://comet.elfhosted.com";
     COMET_SERVICE_BY_PROVIDER = {
       realdebrid: "realdebrid",
@@ -5914,8 +7360,8 @@ var init_torbox_search = __esm({
         const apiKey = this.row.api_key ?? "";
         if (!apiKey) return [];
         const tbImdbId = query.imdbId;
-        const path = query.kind === "movie" ? `/torrents/imdb:${tbImdbId}` : `/torrents/imdb:${tbImdbId}?season=${query.season ?? 1}&episode=${query.episode ?? 1}`;
-        const data = await fetchJson(`${TORBOX_SEARCH_HOST}${path}`, {
+        const path4 = query.kind === "movie" ? `/torrents/imdb:${tbImdbId}` : `/torrents/imdb:${tbImdbId}?season=${query.season ?? 1}&episode=${query.episode ?? 1}`;
+        const data = await fetchJson(`${TORBOX_SEARCH_HOST}${path4}`, {
           signal,
           headers: { Authorization: `Bearer ${apiKey}` }
         });
@@ -6085,7 +7531,14 @@ function pickTag(block, tag) {
   const r = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i");
   const m = block.match(r);
   if (!m) return void 0;
-  return m[1].replace(/^<!\[CDATA\[/, "").replace(/\]\]>$/, "").trim();
+  return decodeEntities2(m[1].replace(/^<!\[CDATA\[/, "").replace(/\]\]>$/, "").trim());
+}
+function decodeEntities2(s) {
+  let out = s;
+  for (let i = 0; i < 2 && /&(?:[a-z]+|#\d+|#x[0-9a-f]+);/i.test(out); i++) {
+    out = out.replace(/&quot;/g, '"').replace(/&apos;|&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n))).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16))).replace(/&amp;/g, "&");
+  }
+  return out;
 }
 function pickAttrs(block) {
   const out = /* @__PURE__ */ new Map();
@@ -6100,7 +7553,7 @@ function pickEnclosure(block) {
   const m = /<enclosure\s+([^>]*?)\/?>/i.exec(block);
   if (!m) return null;
   const tag = m[1];
-  const url = /\burl="([^"]*)"/i.exec(tag)?.[1];
+  const url = decodeEntities2(/\burl="([^"]*)"/i.exec(tag)?.[1] ?? "");
   if (!url) return null;
   const length = /\blength="([^"]*)"/i.exec(tag)?.[1];
   const type = /\btype="([^"]*)"/i.exec(tag)?.[1];
@@ -6255,6 +7708,52 @@ var init_sources = __esm({
       "external-addon": (row) => new ExternalAddonSource(row)
     };
     SOURCE_TYPES = Object.keys(FACTORIES2);
+  }
+});
+
+// ../rewind_forge/src/usenet/screen.ts
+async function screenUsenet(streams2, isUsenet) {
+  const queue = streams2.filter((s) => s.nzbId && isUsenet(s));
+  if (!queue.length) return streams2;
+  const svc = await getUsenetEngine().catch(() => null);
+  if (!svc) return streams2;
+  const signal = AbortSignal.timeout(BUDGET_MS);
+  const dead = /* @__PURE__ */ new Set();
+  let alive = 0;
+  let screened = 0;
+  let grabbed = 0;
+  let next = 0;
+  const worker = async () => {
+    while (next < queue.length && alive < WANT_ALIVE && grabbed < MAX_SCREENED && !signal.aborted) {
+      const s = queue[next++];
+      const known = await svc.engine.verdicts.get(s.nzbId);
+      if (!known) grabbed += 1;
+      const r = await svc.engine.screen(s.nzbId, signal);
+      screened += 1;
+      if (r === "missing") dead.add(s.id);
+      else if (r === "alive") alive += 1;
+    }
+  };
+  const t0 = Date.now();
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  if (dead.size || grabbed) {
+    logger2.info(
+      "streams",
+      `Usenet: screened ${screened} releases (${grabbed} new) \u2192 ${alive} alive, ${dead.size} gone from the provider (dropped) in ${Date.now() - t0} ms`
+    );
+  }
+  return dead.size ? streams2.filter((s) => !dead.has(s.id)) : streams2;
+}
+var WANT_ALIVE, MAX_SCREENED, CONCURRENCY, BUDGET_MS;
+var init_screen = __esm({
+  "../rewind_forge/src/usenet/screen.ts"() {
+    "use strict";
+    init_log2();
+    init_service();
+    WANT_ALIVE = 5;
+    MAX_SCREENED = 12;
+    CONCURRENCY = 4;
+    BUDGET_MS = 8e3;
   }
 });
 
@@ -6952,7 +8451,7 @@ var init_formatter = __esm({
 });
 
 // ../rewind_forge/src/pipeline.ts
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash4 } from "node:crypto";
 function dbg(message) {
   if (STREAMS_DEBUG) logger2.info("streams", message);
 }
@@ -7007,11 +8506,13 @@ async function syncNativeStreams(opts) {
     strict: prefs.bingeStrictReleaseGroup,
     preferPacks: prefs.bingeOnlySeasonPacks
   }) : sorted;
+  const usenetResolvers = new Set(accounts.filter((a) => a.row.provider === "usenet").map((a) => a.row.id));
+  const screened = usenetResolvers.size ? await screenUsenet(pinned, (s) => !!s.resolverId && usenetResolvers.has(s.resolverId)) : pinned;
   const sourceNameById = new Map(sourceRows.map((r) => [r.id, r.name]));
   const resolverProviderById = new Map(accounts.map((a) => [a.row.id, a.row.provider]));
   await persist(
     itemId,
-    pinned,
+    screened,
     formatter ?? DEFAULT_FORMATTER_CONFIG,
     sourceNameById,
     resolverProviderById,
@@ -7025,12 +8526,12 @@ async function syncNativeStreams(opts) {
   const assumedStr = breakdown(
     perDebrid.filter((d) => d.assumed).map((d) => [prettyProvider(d.provider), d.cached])
   );
-  if (pinned.length > 0) {
+  if (screened.length > 0) {
     const cachedPart = verifiedStr ? ` \xB7 cached: ${verifiedStr}` : "";
     const assumedPart = assumedStr ? ` \xB7 assumed: ${assumedStr}` : "";
     logger2.success(
       "streams",
-      `${title} \u2014 ${pinned.length} streams in ${tookSec}s \xB7 sources: ${sourcesStr}${cachedPart}${assumedPart}`
+      `${title} \u2014 ${screened.length} streams in ${tookSec}s \xB7 sources: ${sourcesStr}${cachedPart}${assumedPart}`
     );
   } else {
     let why;
@@ -7044,14 +8545,14 @@ async function syncNativeStreams(opts) {
     }
     logger2.warn("streams", `${title} \u2014 0 streams (${why}) in ${tookSec}s`);
   }
-  return pinned;
+  return screened;
 }
 async function resolveStream(stream, hint) {
   if (!stream.resolverId) {
     logger2.warn("streams", `Resolve skipped: stream has no resolver assigned (${stream.rawTitle ?? stream.infoHash ?? stream.nzbId ?? "?"})`);
     return null;
   }
-  const accounts = await getForgeHost().listStreamAccounts();
+  const accounts = await listAccountsWithBuiltin();
   const row = accounts.find((a) => a.id === stream.resolverId && a.enabled === 1);
   if (!row) {
     logger2.warn("streams", `Resolve failed: assigned resolver ${stream.resolverId} is missing or disabled`);
@@ -7097,8 +8598,26 @@ async function loadSources() {
   const enabled = rows.filter((r) => r.enabled === 1);
   return enabled.map(buildSource).filter((s) => s !== null);
 }
-async function loadAccounts() {
+async function listAccountsWithBuiltin() {
   const rows = await getForgeHost().listStreamAccounts();
+  if (rows.some((r) => r.provider === "usenet") || !await readUsenetSettings()) return rows;
+  return [...rows, {
+    id: BUILTIN_USENET_ACCOUNT_ID,
+    provider: "usenet",
+    kind: "usenet",
+    api_key: null,
+    host: null,
+    enabled: 1,
+    priority: 50,
+    config_json: "{}",
+    premium_until: null,
+    last_checked_at: null,
+    last_error: null,
+    created_at: 0
+  }];
+}
+async function loadAccounts() {
+  const rows = await listAccountsWithBuiltin();
   return rows.filter((r) => r.enabled === 1).map((row) => ({ row, resolver: buildResolver(row) })).filter((x) => x.resolver !== null);
 }
 async function loadSourceRows() {
@@ -7210,12 +8729,15 @@ async function annotateAvailability(candidates, accounts) {
   for (const { row } of nonVerifying) {
     perDebrid.push({ provider: row.provider, cached: assumedCount, assumed: true });
   }
-  return { resolved: [...direct, ...annotated], perDebrid };
+  const rejected = new Set(cacheMaps.flatMap(({ resolver }) => [...resolver.rejected ?? []]));
+  const kept = rejected.size ? annotated.filter((c) => !rejected.has(c.id)) : annotated;
+  if (rejected.size) logger2.info("streams", `Dropped ${annotated.length - kept.length} releases known to be broken`);
+  return { resolved: [...direct, ...kept], perDebrid };
 }
-async function persist(itemId, streams, formatter, sourceNameById, resolverProviderById, episodeName) {
+async function persist(itemId, streams2, formatter, sourceNameById, resolverProviderById, episodeName) {
   await getForgeHost().setNativeStreams(
     itemId,
-    streams.map((s, i) => {
+    streams2.map((s, i) => {
       const addonName = sourceNameById.get(s.sourceId) ?? s.sourceType;
       const provider = s.resolverId ? resolverProviderById.get(s.resolverId) : null;
       const debridName = provider ? prettyProvider(provider) : null;
@@ -7260,9 +8782,9 @@ async function persist(itemId, streams, formatter, sourceNameById, resolverProvi
 }
 function streamRowId(itemId, s) {
   const key = s.url || s.infoHash || s.nzbId || s.id;
-  return createHash2("md5").update(`${itemId}:${key}`).digest("hex");
+  return createHash4("md5").update(`${itemId}:${key}`).digest("hex");
 }
-var DEFAULT_SOURCE_TIMEOUT_MS, DEFAULT_RESOLVE_TIMEOUT_MS, SOURCE_SEARCH_TIMEOUT_MS, STREAMS_DEBUG;
+var BUILTIN_USENET_ACCOUNT_ID, DEFAULT_SOURCE_TIMEOUT_MS, DEFAULT_RESOLVE_TIMEOUT_MS, SOURCE_SEARCH_TIMEOUT_MS, STREAMS_DEBUG;
 var init_pipeline = __esm({
   "../rewind_forge/src/pipeline.ts"() {
     "use strict";
@@ -7273,7 +8795,10 @@ var init_pipeline = __esm({
     init_resolvers();
     init_sort();
     init_sources();
+    init_screen();
+    init_service();
     init_formatter();
+    BUILTIN_USENET_ACCOUNT_ID = "builtin-usenet";
     DEFAULT_SOURCE_TIMEOUT_MS = 2e4;
     DEFAULT_RESOLVE_TIMEOUT_MS = 3e4;
     SOURCE_SEARCH_TIMEOUT_MS = 9e3;
@@ -7370,8 +8895,8 @@ async function getJson2(url, signal) {
 }
 async function ptubeCatalogPage(page, signal) {
   const skip = Math.max(0, page) * PAGE_SIZE;
-  const path = skip > 0 ? `/catalog/movie/tpdb_catalog/skip=${skip}.json` : "/catalog/movie/tpdb_catalog.json";
-  const json = await getJson2(`${PTUBE_BASE}${path}`, signal);
+  const path4 = skip > 0 ? `/catalog/movie/tpdb_catalog/skip=${skip}.json` : "/catalog/movie/tpdb_catalog.json";
+  const json = await getJson2(`${PTUBE_BASE}${path4}`, signal);
   const out = [];
   for (const m of json?.metas ?? []) {
     const id = typeof m.id === "string" ? m.id : "";
@@ -7420,34 +8945,34 @@ async function harvestPtube(opts = {}) {
     if (opts.signal?.aborted) break;
     const metas = await ptubeCatalogPage(page, opts.signal);
     if (!metas.length) break;
-    for (const meta of metas) {
+    for (const meta2 of metas) {
       if (opts.signal?.aborted) break;
-      if (!meta.tpdbId || !meta.name) continue;
-      if (await adultCatalogHasTpdbId(meta.tpdbId)) continue;
-      const streams = await ptubeStreams(meta.tpdbId, opts.signal);
+      if (!meta2.tpdbId || !meta2.name) continue;
+      if (await adultCatalogHasTpdbId(meta2.tpdbId)) continue;
+      const streams2 = await ptubeStreams(meta2.tpdbId, opts.signal);
       await new Promise((r) => setTimeout(r, STREAM_FETCH_GAP_MS));
-      const best = streams[0];
+      const best = streams2[0];
       if (!best) continue;
       const { studio, date } = parseReleaseName2(best.releaseName);
       const inserted = await upsertAdultCatalog([{
         infoHash: best.infoHash,
         rawTitle: best.releaseName,
-        parsedTitle: meta.name,
+        parsedTitle: meta2.name,
         studio,
         sizeBytes: best.sizeBytes,
-        year: meta.year,
+        year: meta2.year,
         sourceTerm: "ptube"
       }]);
       if (!inserted) continue;
       await updateAdultCatalogEnrichment(best.infoHash, {
-        title: meta.name,
+        title: meta2.name,
         studio,
-        performers: meta.performers,
+        performers: meta2.performers,
         contentType: "scene",
-        posterUrl: meta.posterUrl,
+        posterUrl: meta2.posterUrl,
         date,
-        year: meta.year ?? (date ? parseInt(date.slice(0, 4), 10) : null),
-        tpdbId: meta.tpdbId,
+        year: meta2.year ?? (date ? parseInt(date.slice(0, 4), 10) : null),
+        tpdbId: meta2.tpdbId,
         tpdbType: "scenes"
       });
       added++;
@@ -7469,15 +8994,15 @@ var init_ptube = __esm({
 });
 
 // ../rewind_addon_sdk/src/manifest.ts
-var SDK_PROTOCOL_VERSION = 1;
+var SDK_PROTOCOL_VERSION = 2;
 
 // ../rewind_addon_sdk/src/addon.ts
 function defineAddon(def) {
   return {
     manifest: def.manifest,
     async register(host2) {
-      const { resources = {}, api } = await def.setup(host2);
-      return { sdk: SDK_PROTOCOL_VERSION, manifest: def.manifest, resources, api };
+      const { resources: resources2 = {}, api } = await def.setup(host2);
+      return { sdk: SDK_PROTOCOL_VERSION, manifest: def.manifest, resources: resources2, api };
     }
   };
 }
@@ -7566,7 +9091,7 @@ async function probeAdultStream(url, timeoutMs = 12e3) {
   try {
     const probe = await Promise.race([
       probeFile(url),
-      new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs))
+      new Promise((resolve2) => setTimeout(() => resolve2(null), timeoutMs))
     ]);
     if (!probe) return null;
     const info = parseProbeInfo(probe);
@@ -7747,6 +9272,12 @@ async function tpdbGetById(uuid, opts) {
   const data = json?.data;
   return data ? normalize(data, contentType) : null;
 }
+async function tpdbGetPerformer(uuid, opts) {
+  if (!opts.token || !uuid) return null;
+  const json = await getJson(`${TPDB_API}/performers/${encodeURIComponent(uuid)}`, opts.token, opts.signal);
+  const data = json?.data;
+  return data ? normalizePerformer(data) : null;
+}
 
 // src/zilean.ts
 var SEARCH_PATH = "/dmm/search";
@@ -7850,62 +9381,62 @@ function words(s) {
   return s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4);
 }
 var MAINSTREAM_FINGERPRINT = /\b(19|20)\d{2}\b[\s\S]*\b(blu-?ray|web-?dl|web-?rip|hdrip|brrip|bdrip|dvdrip|hdtv|x264|x265|h\.?264|h\.?265|hevc|amzn|hmax|dsnp|nf|atvp|rarbg|yts|yify)\b/i;
-function isRelevant(meta, t) {
+function isRelevant(meta2, t) {
   const hay = t.rawTitle;
-  if (meta.contentType === "jav") {
-    const m = JAV_CODE.exec(meta.title);
+  if (meta2.contentType === "jav") {
+    const m = JAV_CODE.exec(meta2.title);
     if (!m) return false;
     const code = alnum(`${m[1]}${m[2]}`);
     return alnum(hay).includes(code);
   }
   if (!t.adult && MAINSTREAM_FINGERPRINT.test(hay)) return false;
   const hayWords = new Set(words(hay));
-  const studioHit = !!(meta.studio && words(meta.studio).some((w) => hayWords.has(w)));
-  const performerHit = meta.performers.some((p) => words(p).some((w) => hayWords.has(w)));
-  if (meta.contentType === "movies") {
-    const titleWords = words(meta.title);
-    const coverage = titleWords.length ? titleWords.filter((w) => hayWords.has(w)).length / titleWords.length : alnum(hay).includes(alnum(meta.title)) ? 1 : 0;
+  const studioHit = !!(meta2.studio && words(meta2.studio).some((w) => hayWords.has(w)));
+  const performerHit = meta2.performers.some((p) => words(p).some((w) => hayWords.has(w)));
+  if (meta2.contentType === "movies") {
+    const titleWords = words(meta2.title);
+    const coverage = titleWords.length ? titleWords.filter((w) => hayWords.has(w)).length / titleWords.length : alnum(hay).includes(alnum(meta2.title)) ? 1 : 0;
     if (coverage < 0.6) return false;
     return t.adult || studioHit;
   }
-  if (!meta.performers.length) return t.adult && studioHit;
+  if (!meta2.performers.length) return t.adult && studioHit;
   return performerHit && (t.adult || studioHit);
 }
 var TV_EPISODE_MARKER = /\bS\d{1,2}[\s._-]?E\d{1,3}\b|\b\d{1,2}x\d{2}\b|\b(?:season|episode)[\s._-]?\d{1,3}\b|\bcomplete[\s._-](?:series|season)\b/i;
-function fileNameMatchesMeta(meta, fileName) {
+function fileNameMatchesMeta(meta2, fileName) {
   if (!fileName.trim()) return true;
   const hayWords = new Set(words(fileName));
-  const studioHit = !!(meta.studio && words(meta.studio).some((w) => hayWords.has(w)));
-  const performerHit = meta.performers.some((p) => words(p).some((w) => hayWords.has(w)));
-  if (meta.contentType === "jav") {
-    const m = JAV_CODE.exec(meta.title);
+  const studioHit = !!(meta2.studio && words(meta2.studio).some((w) => hayWords.has(w)));
+  const performerHit = meta2.performers.some((p) => words(p).some((w) => hayWords.has(w)));
+  if (meta2.contentType === "jav") {
+    const m = JAV_CODE.exec(meta2.title);
     if (m && alnum(fileName).includes(alnum(`${m[1]}${m[2]}`))) return true;
   } else {
-    const titleWords = words(meta.title);
+    const titleWords = words(meta2.title);
     const titleHit = titleWords.length > 0 && titleWords.filter((w) => hayWords.has(w)).length / titleWords.length >= 0.5;
     if (performerHit || studioHit || titleHit) return true;
   }
   return !TV_EPISODE_MARKER.test(fileName);
 }
-function yearOf(meta) {
-  return meta.date ? parseInt(meta.date.slice(0, 4), 10) || null : null;
+function yearOf(meta2) {
+  return meta2.date ? parseInt(meta2.date.slice(0, 4), 10) || null : null;
 }
-function toCard(meta) {
+function toCard(meta2) {
   return {
-    id: `tpdb:${meta.contentType}:${meta.uuid}`,
-    kind: meta.contentType === "movies" ? "movie" : meta.contentType === "jav" ? "jav" : "scene",
-    contentType: meta.contentType,
-    uuid: meta.uuid,
-    title: meta.title,
-    posterUrl: meta.posterUrl,
-    backgroundUrl: meta.backgroundUrl,
-    date: meta.date,
-    year: yearOf(meta),
-    performers: meta.performers,
-    studio: meta.studio,
-    description: meta.description,
-    rating: meta.rating,
-    durationSeconds: meta.durationSeconds
+    id: `tpdb:${meta2.contentType}:${meta2.uuid}`,
+    kind: meta2.contentType === "movies" ? "movie" : meta2.contentType === "jav" ? "jav" : "scene",
+    contentType: meta2.contentType,
+    uuid: meta2.uuid,
+    title: meta2.title,
+    posterUrl: meta2.posterUrl,
+    backgroundUrl: meta2.backgroundUrl,
+    date: meta2.date,
+    year: yearOf(meta2),
+    performers: meta2.performers,
+    studio: meta2.studio,
+    description: meta2.description,
+    rating: meta2.rating,
+    durationSeconds: meta2.durationSeconds
   };
 }
 async function adultSearch(library, query, opts = {}) {
@@ -7952,10 +9483,10 @@ async function adultSearch(library, query, opts = {}) {
   while (added) {
     added = false;
     for (const list of perTypeLists) {
-      const meta = list[idx];
-      if (!meta) continue;
+      const meta2 = list[idx];
+      if (!meta2) continue;
       added = true;
-      const card = toCard(meta);
+      const card = toCard(meta2);
       if (seen.has(card.id)) continue;
       seen.add(card.id);
       cards.push(card);
@@ -7964,33 +9495,33 @@ async function adultSearch(library, query, opts = {}) {
   }
   return cards;
 }
-function buildResolveQueries(meta) {
+function buildResolveQueries(meta2) {
   const out = [];
-  const push = (q) => {
+  const push2 = (q) => {
     const v = (q ?? "").replace(/\s{2,}/g, " ").trim();
     if (v && !out.some((e) => e.toLowerCase() === v.toLowerCase())) out.push(v);
   };
-  if (meta.contentType === "jav") {
-    const code = meta.title.match(JAV_CODE)?.[0];
-    push(code);
-    push(meta.title);
-  } else if (meta.contentType === "movies") {
-    push(meta.title);
-    if (meta.studio) push(`${meta.title} ${meta.studio}`);
+  if (meta2.contentType === "jav") {
+    const code = meta2.title.match(JAV_CODE)?.[0];
+    push2(code);
+    push2(meta2.title);
+  } else if (meta2.contentType === "movies") {
+    push2(meta2.title);
+    if (meta2.studio) push2(`${meta2.title} ${meta2.studio}`);
   } else {
-    const p0 = meta.performers[0];
-    const p1 = meta.performers[1];
-    if (meta.studio && p0) push(`${meta.studio} ${p0}`);
-    if (p0 && p1) push(`${p0} ${p1}`);
-    push(meta.title);
-    if (p0) push(`${p0} ${meta.title}`);
+    const p0 = meta2.performers[0];
+    const p1 = meta2.performers[1];
+    if (meta2.studio && p0) push2(`${meta2.studio} ${p0}`);
+    if (p0 && p1) push2(`${p0} ${p1}`);
+    push2(meta2.title);
+    if (p0) push2(`${p0} ${meta2.title}`);
   }
   return out.slice(0, 4);
 }
 async function searchAdultBackends(sources, fallbackZileanUrl, query, signal) {
   const out = [];
   const seen = /* @__PURE__ */ new Set();
-  const push = (infoHash, rawTitle, sizeBytes, adult) => {
+  const push2 = (infoHash, rawTitle, sizeBytes, adult) => {
     const h = (infoHash || "").toLowerCase();
     if (!h || !rawTitle || seen.has(h)) return;
     seen.add(h);
@@ -8000,7 +9531,7 @@ async function searchAdultBackends(sources, fallbackZileanUrl, query, signal) {
   if (!zileanUrls2.length && fallbackZileanUrl) zileanUrls2.push(fallbackZileanUrl);
   for (const url of zileanUrls2) {
     const z = await zileanSearch(url, query, { signal, limit: 80 });
-    for (const t of z) push(t.infoHash, t.rawTitle, t.sizeBytes, t.adult);
+    for (const t of z) push2(t.infoHash, t.rawTitle, t.sizeBytes, t.adult);
   }
   const torznab = sources.filter((s) => s.source_type === "torznab" && s.url);
   if (torznab.length) {
@@ -8008,7 +9539,7 @@ async function searchAdultBackends(sources, fallbackZileanUrl, query, signal) {
     for (const s of torznab) {
       try {
         const cands = await new TorznabSource2(s).search({ kind: "movie", title: query }, signal);
-        for (const c of cands) if (c.infoHash) push(c.infoHash, c.rawTitle, c.sizeBytes ?? null, true);
+        for (const c of cands) if (c.infoHash) push2(c.infoHash, c.rawTitle, c.sizeBytes ?? null, true);
       } catch {
       }
     }
@@ -8056,41 +9587,41 @@ async function adultResolveContext(library, itemId, signal) {
     logger.warn("adult", "resolve skipped: no adult stream sources configured (add a Zilean/Torznab source under Streams \u2192 Adult)");
     return null;
   }
-  const meta = await tpdbGetById(uuid, { token, contentType, signal });
-  if (!meta) {
+  const meta2 = await tpdbGetById(uuid, { token, contentType, signal });
+  if (!meta2) {
     logger.warn("adult", `resolve skipped: ThePornDB had no record for ${itemId}`);
     return null;
   }
   const torbox = await pickTorBox(cfg, signal);
   if (!torbox) {
-    logger.warn("adult", `${meta.title} \u2014 resolve skipped: no enabled TorBox debrid found`);
+    logger.warn("adult", `${meta2.title} \u2014 resolve skipped: no enabled TorBox debrid found`);
     return null;
   }
-  return { meta, adultSources, cfg, resolver: torbox.resolver, accId: torbox.accId };
+  return { meta: meta2, adultSources, cfg, resolver: torbox.resolver, accId: torbox.accId };
 }
 async function gatherCandidates(ctx, signal) {
-  const { meta, adultSources, cfg, resolver, accId } = ctx;
-  const queries = buildResolveQueries(meta);
+  const { meta: meta2, adultSources, cfg, resolver, accId } = ctx;
+  const queries = buildResolveQueries(meta2);
   const relevant = /* @__PURE__ */ new Map();
   for (const q of queries) {
     const torrents = await searchAdultBackends(adultSources, cfg.zileanUrl, q, signal);
     for (const t of torrents) {
-      if (!relevant.has(t.infoHash) && isRelevant(meta, t)) relevant.set(t.infoHash, t);
+      if (!relevant.has(t.infoHash) && isRelevant(meta2, t)) relevant.set(t.infoHash, t);
     }
     if (relevant.size >= 40) break;
   }
   let pool = [...relevant.values()].slice(0, 60).sort((a, b) => (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0));
   if (!pool.length) {
-    logger.warn("adult", `${meta.title} \u2014 0 relevant torrents from ${queries.length} quer${queries.length === 1 ? "y" : "ies"} [${queries.join(" | ")}]`);
+    logger.warn("adult", `${meta2.title} \u2014 0 relevant torrents from ${queries.length} quer${queries.length === 1 ? "y" : "ies"} [${queries.join(" | ")}]`);
     return [];
   }
   if (await adultCachedOnly()) {
     const map = await resolver.checkAvailability(pool.map((t) => toStreamCandidate(t, accId)), signal);
     pool = pool.filter((t) => map.get(t.infoHash) === true);
-    logger[pool.length ? "info" : "warn"]("adult", `${meta.title} \u2014 ${pool.length} cached (cached-only mode)`);
+    logger[pool.length ? "info" : "warn"]("adult", `${meta2.title} \u2014 ${pool.length} cached (cached-only mode)`);
     if (!pool.length) return [];
   } else {
-    logger.info("adult", `${meta.title} \u2014 ${pool.length} relevant release(s)`);
+    logger.info("adult", `${meta2.title} \u2014 ${pool.length} relevant release(s)`);
   }
   return pool.map((t) => ({
     infoHash: t.infoHash,
@@ -8108,49 +9639,49 @@ async function adultListStreams(library, itemId, signal) {
 async function adultResolveItem(library, itemId, signal, opts) {
   const ctx = await adultResolveContext(library, itemId, signal);
   if (!ctx) return null;
-  const { meta, resolver, accId } = ctx;
-  const order = opts?.hash ? [{ infoHash: opts.hash.toLowerCase(), rawTitle: meta.title, sizeBytes: null }] : await gatherCandidates(ctx, signal);
+  const { meta: meta2, resolver, accId } = ctx;
+  const order = opts?.hash ? [{ infoHash: opts.hash.toLowerCase(), rawTitle: meta2.title, sizeBytes: null }] : await gatherCandidates(ctx, signal);
   if (!order.length) return null;
   let queued = null;
   for (const opt of order.slice(0, 5)) {
     const ref = opt.infoHash.slice(0, 8);
     const detailed = await resolver.resolveDetailed(toStreamCandidate(opt, accId), signal);
     if (detailed && "queued" in detailed) {
-      logger.info("adult", `${meta.title} \u2014 ${ref} queued on TorBox (${detailed.state ?? "?"} ${detailed.progress ?? 0}%, ${detailed.seeds ?? "?"} seeds)`);
-      queued ??= { queued: true, title: meta.title, state: detailed.state, progress: detailed.progress };
+      logger.info("adult", `${meta2.title} \u2014 ${ref} queued on TorBox (${detailed.state ?? "?"} ${detailed.progress ?? 0}%, ${detailed.seeds ?? "?"} seeds)`);
+      queued ??= { queued: true, title: meta2.title, state: detailed.state, progress: detailed.progress };
       continue;
     }
     if (!detailed?.url) {
-      logger.warn("adult", `${meta.title} \u2014 TorBox returned no URL for ${ref} (${opt.rawTitle}); trying next`);
+      logger.warn("adult", `${meta2.title} \u2014 TorBox returned no URL for ${ref} (${opt.rawTitle}); trying next`);
       continue;
     }
-    if (!fileNameMatchesMeta(meta, detailed.name)) {
-      logger.warn("adult", `${meta.title} \u2014 resolved file "${detailed.name}" doesn't match the item (dirty hash ${ref}); skipping`);
+    if (!fileNameMatchesMeta(meta2, detailed.name)) {
+      logger.warn("adult", `${meta2.title} \u2014 resolved file "${detailed.name}" doesn't match the item (dirty hash ${ref}); skipping`);
       continue;
     }
     const url = detailed.url;
     const itemHandle = await createAdultPlaySession({
       url,
-      durationSeconds: meta.durationSeconds ?? 0,
-      title: meta.title,
-      posterUrl: meta.posterUrl,
+      durationSeconds: meta2.durationSeconds ?? 0,
+      title: meta2.title,
+      posterUrl: meta2.posterUrl,
       infoHash: opt.infoHash
     });
-    logger.success("adult", `${meta.title} \u2014 resolved ${ref} (${opt.rawTitle})`);
+    logger.success("adult", `${meta2.title} \u2014 resolved ${ref} (${opt.rawTitle})`);
     return {
       url,
       itemId: itemHandle,
-      durationTicks: Math.max(0, Math.round((meta.durationSeconds ?? 0) * 1e7)),
-      title: meta.title,
-      posterUrl: meta.posterUrl,
+      durationTicks: Math.max(0, Math.round((meta2.durationSeconds ?? 0) * 1e7)),
+      title: meta2.title,
+      posterUrl: meta2.posterUrl,
       infoHash: opt.infoHash
     };
   }
   if (queued) {
-    logger.info("adult", `${meta.title} \u2014 nothing ready yet; reporting "downloading" (${queued.progress ?? 0}%)`);
+    logger.info("adult", `${meta2.title} \u2014 nothing ready yet; reporting "downloading" (${queued.progress ?? 0}%)`);
     return queued;
   }
-  logger.warn("adult", `${meta.title} \u2014 ${order.length} release(s) but none resolved to a URL`);
+  logger.warn("adult", `${meta2.title} \u2014 ${order.length} release(s) but none resolved to a URL`);
   return null;
 }
 
@@ -8779,7 +10310,7 @@ async function deadHashes(hashes) {
   }
   return dead;
 }
-var VIDEO_EXT3 = /\.(mp4|mkv|avi|wmv|mov|m4v|ts|webm|mpg|mpeg|flv)$/i;
+var VIDEO_EXT4 = /\.(mp4|mkv|avi|wmv|mov|m4v|ts|webm|mpg|mpeg|flv)$/i;
 var ARCHIVE_EXT = /\.(rar|zip|7z|tar|gz|part\d*|r\d{2}|\d{3}|z\d{2})$/i;
 var RES_RE = /\b(2160p|1440p|1080p|720p|480p|360p|4k|uhd)\b/i;
 var VR_RE = /\b(vr|180x180|360x180|3dh|sbs|fisheye|mkx200|tb180|180_180)\b/i;
@@ -8810,7 +10341,7 @@ function titleToFilename(title) {
   return title.replace(/^download file\s*/i, "").replace(/\s*[-–]\s*rapidgator.*$/i, "").replace(/…|\.\.\./g, "").trim();
 }
 function parseReleaseName3(rawName) {
-  const name = rawName.replace(VIDEO_EXT3, "").trim();
+  const name = rawName.replace(VIDEO_EXT4, "").trim();
   const resM = name.match(RES_RE);
   let resolution = resM ? resM[1].toLowerCase() : null;
   if (resolution === "4k" || resolution === "uhd") resolution = "2160p";
@@ -8859,7 +10390,7 @@ function isPlausibleRelease(name) {
   const tokens = n.split(/[.\s_\-]+/).filter((t) => /[a-z0-9]/i.test(t));
   return tokens.length >= 2;
 }
-async function mapLimit(items, limit, fn) {
+async function mapLimit2(items, limit, fn) {
   const out = new Array(items.length);
   let cursor = 0;
   const worker = async () => {
@@ -8936,7 +10467,7 @@ async function rapidgatorSearch(query, opts = {}) {
     if (!filename || !isPlausibleRelease(filename)) continue;
     const hasExt = /\.[a-z0-9]{2,4}$/i.test(filename);
     if (ARCHIVE_EXT.test(filename)) continue;
-    if (hasExt && !VIDEO_EXT3.test(filename)) continue;
+    if (hasExt && !VIDEO_EXT4.test(filename)) continue;
     seen.add(parsed.hash);
     raw.push({ url: r.url, hash: parsed.hash, filename });
   }
@@ -8948,26 +10479,26 @@ async function rapidgatorSearch(query, opts = {}) {
     token = (await getAddonConfig2()).theporndb_api_key || "";
   } catch {
   }
-  const cards = await mapLimit(live, 6, async ({ url, hash, filename }) => {
-    const meta = parseReleaseName3(filename);
+  const cards = await mapLimit2(live, 6, async ({ url, hash, filename }) => {
+    const meta2 = parseReleaseName3(filename);
     const base2 = {
       id: encodeId(url),
       kind: "scene",
       contentType: null,
       uuid: hash,
-      title: meta.title,
+      title: meta2.title,
       posterUrl: null,
       backgroundUrl: null,
-      date: meta.date,
-      year: meta.date ? Number(meta.date.slice(0, 4)) : null,
+      date: meta2.date,
+      year: meta2.date ? Number(meta2.date.slice(0, 4)) : null,
       performers: [],
-      studio: meta.studio,
+      studio: meta2.studio,
       description: null,
       rating: null,
       durationSeconds: null,
       source: "rapidgator",
-      resolution: meta.resolution,
-      isVr: meta.isVr
+      resolution: meta2.resolution,
+      isVr: meta2.isVr
     };
     return enrichWithTpdb(base2, filename, token, opts.signal);
   });
@@ -9045,12 +10576,12 @@ async function rapidgatorResolve(id) {
   }
   const durationSeconds = probe?.durationSeconds ?? 0;
   const streamInfo = probe?.streamInfo ?? null;
-  const meta = parseReleaseName3(filename);
+  const meta2 = parseReleaseName3(filename);
   const itemId = await createAdultPlaySession({
     url: data.download,
     durationSeconds,
     // real probed runtime (0 only when the probe was inconclusive)
-    title: meta.title,
+    title: meta2.title,
     posterUrl: null,
     infoHash: null,
     streamInfo
@@ -9059,7 +10590,7 @@ async function rapidgatorResolve(id) {
     url: data.download,
     itemId,
     durationTicks: Math.max(0, Math.round(durationSeconds * 1e7)),
-    title: meta.title || filename,
+    title: meta2.title || filename,
     posterUrl: null,
     infoHash: null,
     streamInfo
@@ -9169,8 +10700,8 @@ function cors(headers) {
   return headers;
 }
 function isPlaylistTarget(target, contentType) {
-  const path = (target.split("?")[0] ?? "").toLowerCase();
-  if (path.endsWith(".m3u8") || path.endsWith(".m3u")) return true;
+  const path4 = (target.split("?")[0] ?? "").toLowerCase();
+  if (path4.endsWith(".m3u8") || path4.endsWith(".m3u")) return true;
   const ct = (contentType ?? "").toLowerCase();
   return ct.includes("mpegurl");
 }
@@ -9259,38 +10790,186 @@ async function handleHlsProxyRequest(request, origin, method) {
   return new Response(method === "HEAD" ? null : res.body, { status: res.status, headers: h });
 }
 
+// src/resources.ts
+init_db();
+var isInfoHash = (id) => /^[a-f0-9]{40}$/i.test(id);
+async function libraryFromRequest({ extra }) {
+  const libraryId = typeof extra.libraryId === "string" ? extra.libraryId : "";
+  const library = libraryId ? await getLibrary(libraryId) : void 0;
+  if (!library) throw new Error("extra.libraryId must name an adult library");
+  return library;
+}
+function resultMeta(r) {
+  return {
+    ...r,
+    id: r.id,
+    type: "adult",
+    name: r.title,
+    poster: r.posterUrl,
+    background: r.backgroundUrl,
+    description: r.description,
+    releaseInfo: r.date ?? (r.year ? String(r.year) : null),
+    duration: r.durationSeconds,
+    posterShape: r.kind === "performer" ? "portrait" : "landscape"
+  };
+}
+function tpdbMeta(id, t) {
+  return {
+    id,
+    type: "adult",
+    name: t.title,
+    description: t.description,
+    poster: t.posterUrl,
+    background: t.backgroundUrl,
+    releaseInfo: t.date,
+    duration: t.durationSeconds,
+    rating: t.rating,
+    studio: t.studio,
+    performers: t.performers,
+    genres: t.tags,
+    posterShape: "landscape"
+  };
+}
+function catalogRowMeta(row) {
+  let performers = [];
+  try {
+    performers = JSON.parse(row.performers_json || "[]");
+  } catch {
+  }
+  return {
+    id: row.info_hash.toLowerCase(),
+    type: "adult",
+    name: row.title || row.parsed_title || row.raw_title,
+    poster: row.poster_url,
+    releaseInfo: row.date ?? (row.year ? String(row.year) : null),
+    duration: row.duration_seconds,
+    studio: row.studio,
+    performers,
+    posterShape: "landscape"
+  };
+}
+async function meta(id) {
+  if (isInfoHash(id)) {
+    const row = await getAdultCatalogEntry(id.toLowerCase());
+    if (!row) return { meta: null };
+    if (row.tpdb_id && row.tpdb_type) {
+      const full = await meta(`tpdb:${row.tpdb_type}:${row.tpdb_id}`).catch(() => ({ meta: null }));
+      if (full.meta) return { meta: { ...full.meta, id: row.info_hash.toLowerCase() } };
+    }
+    return { meta: catalogRowMeta(row) };
+  }
+  const token = (await getAddonConfig()).theporndb_api_key ?? "";
+  const performer = /^performer:(.+)$/.exec(id);
+  if (performer) {
+    const p = await tpdbGetPerformer(performer[1], { token });
+    return {
+      meta: p ? { id, type: "person", name: p.name, poster: p.imageUrl, description: p.details, posterShape: "portrait" } : null
+    };
+  }
+  const m = /^tpdb:(scenes|movies|jav):(.+)$/.exec(id);
+  if (!m) throw new Error(`meta does not understand id "${id}"`);
+  const t = await tpdbGetById(m[2], { token, contentType: m[1] });
+  return { meta: t ? tpdbMeta(id, t) : null };
+}
+async function artwork(id) {
+  const { meta: m } = await meta(id);
+  const poster = m?.poster ?? null;
+  const background = m?.background ?? null;
+  return { artwork: { poster, background, thumb: background ?? poster } };
+}
+function toResolve(r) {
+  if (!r) return { url: null };
+  if ("queued" in r) {
+    return {
+      url: null,
+      preparing: { progress: r.progress ?? void 0, message: r.state ?? void 0 }
+    };
+  }
+  return { url: r.url, playback: r };
+}
+async function resolve(req) {
+  if (isInfoHash(req.id)) return toResolve(await adultResolveCatalog(req.id.toLowerCase()));
+  return toResolve(
+    await adultResolveItem(await libraryFromRequest(req), req.id, void 0, {
+      hash: typeof req.extra.hash === "string" ? req.extra.hash : void 0
+    })
+  );
+}
+async function streams(req) {
+  const list = isInfoHash(req.id) ? await adultListCatalogStreams(req.id.toLowerCase()) : await adultListStreams(await libraryFromRequest(req), req.id);
+  return { streams: list.map((s) => ({ ...s, name: s.rawTitle })) };
+}
+var resources = {
+  // search/adult/<query>.json?libraryId=… — ThePornDB-backed search.
+  search: async (req) => ({
+    metas: (await adultSearch(await libraryFromRequest(req), req.id)).map(resultMeta)
+  }),
+  // catalog/adult/<query>.json — the locally harvested catalog.
+  catalog: async (req) => ({
+    metas: (await searchCatalog(req.extra.libraryId ? await libraryFromRequest(req) : {}, req.id)).map(resultMeta)
+  }),
+  meta: ({ id }) => meta(id),
+  artwork: ({ id }) => artwork(id),
+  stream: streams,
+  resolve
+};
+
 // manifest.json
 var manifest_default = {
   id: "rewind.vault",
-  name: "The Vault",
-  version: "2.0.0",
+  name: "Vault",
+  version: "2.0.1",
   description: "Adult content for Rewind \u2014 password-gated catalog + search (ThePornDB metadata; Zilean / Torznab / apiJAV / Rapidgator sourcing; on-demand debrid playback). Stays fully isolated from every normal library. Installing reveals the Adult library kind, the Adult sources section, and the ThePornDB credential.",
-  resources: ["catalog", "search", "stream", "resolve", "playback"],
-  types: ["adult"],
-  idPrefixes: ["tpdb:"],
+  resources: [
+    "catalog",
+    "search",
+    "meta",
+    "artwork",
+    "stream",
+    "resolve"
+  ],
+  types: [
+    "adult",
+    "person"
+  ],
+  idPrefixes: [
+    "tpdb:",
+    "performer:"
+  ],
+  provides: {
+    content: [
+      "adult"
+    ],
+    metadata: [
+      "adult"
+    ],
+    artwork: [
+      "adult"
+    ]
+  },
   rewind: {
     kind: "adult",
-    sdk: 1,
+    sdk: 2,
     repo: "j4ckgrey/rewind_vault",
     branch: "main",
     bundlePath: "dist/index.mjs",
     bundleUrl: "https://raw.githubusercontent.com/j4ckgrey/rewind_vault/release/dist/index.mjs",
     tabs: [],
     configKeys: [
-      { key: "theporndb_api_key", label: "ThePornDB", category: "Adult Content", description: "API token from api.theporndb.net \u2192 API tokens. Powers adult metadata + search." }
+      {
+        key: "theporndb_api_key",
+        label: "ThePornDB",
+        category: "Adult Content",
+        description: "API token from api.theporndb.net \u2192 API tokens. Powers adult metadata + search."
+      }
     ],
-    features: ["adult"]
+    features: [
+      "adult"
+    ]
   }
 };
 
 // src/plugin.ts
-var isInfoHash = (id) => /^[a-f0-9]{40}$/i.test(id);
-async function libraryFromRequest({ extra }) {
-  const libraryId = typeof extra.libraryId === "string" ? extra.libraryId : "";
-  const library = libraryId ? await getVaultHost().getLibrary(libraryId) : void 0;
-  if (!library) throw new Error("extra.libraryId must name an adult library");
-  return library;
-}
 var addon = defineAddon({
   manifest: manifest_default,
   setup(host2) {
@@ -9298,29 +10977,7 @@ var addon = defineAddon({
     const api = { catalog: catalog_exports, search: search_exports, apijav: apijav_exports, rapidgator: rapidgator_exports, playback: playback_exports, hls: hls_exports };
     return {
       api,
-      resources: {
-        // search/adult/<query>.json?libraryId=… — TPDB-backed adult search.
-        search: async (req) => ({
-          metas: await adultSearch(await libraryFromRequest(req), req.id)
-        }),
-        // catalog/adult/<query>.json — the locally-harvested adult catalog.
-        catalog: async (req) => ({
-          metas: await searchCatalog(
-            req.extra.libraryId ? await libraryFromRequest(req) : {},
-            req.id
-          )
-        }),
-        // stream/adult/<id>.json?libraryId=… — release candidates for an item.
-        stream: async (req) => ({
-          streams: isInfoHash(req.id) ? await adultListCatalogStreams(req.id.toLowerCase()) : await adultListStreams(await libraryFromRequest(req), req.id)
-        }),
-        // resolve/adult/<id>.json?libraryId=…&hash=… — resolve to playback.
-        resolve: async (req) => ({
-          playback: isInfoHash(req.id) ? await adultResolveCatalog(req.id.toLowerCase()) : await adultResolveItem(await libraryFromRequest(req), req.id, void 0, {
-            hash: typeof req.extra.hash === "string" ? req.extra.hash : void 0
-          })
-        })
-      }
+      resources
     };
   }
 });
