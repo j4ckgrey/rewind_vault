@@ -10096,17 +10096,53 @@ async function freshCachedSet(hashes, signal) {
   for (const [h, isCached2] of map) if (isCached2) out.add(h);
   return out;
 }
+var RESULTS_NS = "adult_results";
+var RESULTS_TTL_S = 4 * 60 * 60;
+async function cachedHashes(key) {
+  const raw = await kvGet(key, RESULTS_NS).catch(() => null);
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+async function storeHashes(key, hashes) {
+  await kvSet(key, RESULTS_NS, JSON.stringify(hashes), RESULTS_TTL_S).catch(() => {
+  });
+}
+async function forgetHashes(key) {
+  await kvSet(key, RESULTS_NS, "", 1).catch(() => {
+  });
+}
+async function rowsFor(hashes) {
+  const rows = await Promise.all(hashes.map((h) => getAdultCatalogEntry(h).catch(() => void 0)));
+  return rows.filter((r) => !!r);
+}
+async function cachedCards(key, cachedOnly) {
+  const hashes = await cachedHashes(key);
+  if (!hashes) return null;
+  return (await rowsFor(hashes)).map((r) => toCard2(r, cachedOnly ? true : void 0));
+}
+async function storeCards(key, cards) {
+  await storeHashes(key, cards.map((c) => c.infoHash).filter((h) => !!h));
+  return cards;
+}
 async function searchCatalog(library, query, opts = {}) {
   void library;
   const q = query.trim();
-  const token = (await getAddonConfig()).theporndb_api_key;
   const cachedOnly = await adultCachedOnly();
+  const key = `search:${cachedOnly ? 1 : 0}:${q.toLowerCase()}`;
+  const hit = await cachedCards(key, cachedOnly);
+  if (hit) return hit;
   if (q) await liveHarvest(q, opts.signal).catch(() => {
   });
-  return presentRows(
+  const cards = await presentRows(
     async () => (await searchAdultCatalog(q, { matchedOnly: false, limit: 240 })).filter(isAdultConfident),
     opts.signal
   );
+  return opts.signal?.aborted ? cards : storeCards(key, cards);
 }
 async function presentRows(load, signal) {
   const token = (await getAddonConfig()).theporndb_api_key;
@@ -10124,11 +10160,21 @@ async function presentRows(load, signal) {
   }
   if (token) {
     const unmatched = dedupRows(shown, cachedSet).filter((r) => r.tpdb_id == null).slice(0, ENRICH_ON_SEARCH);
-    for (let i = 0; i < unmatched.length; i += 12) {
-      if (signal?.aborted) break;
+    const deadline = Date.now() + ENRICH_BUDGET_MS;
+    let i = 0;
+    for (; i < unmatched.length; i += 12) {
+      if (signal?.aborted || Date.now() > deadline) break;
       await Promise.all(unmatched.slice(i, i + 12).map((r) => enrichOne(r, token, true).catch(() => false)));
     }
-    if (unmatched.length) {
+    const rest = unmatched.slice(i);
+    if (rest.length) {
+      void (async () => {
+        for (let j = 0; j < rest.length; j += 12) {
+          await Promise.all(rest.slice(j, j + 12).map((r) => enrichOne(r, token, true).catch(() => false)));
+        }
+      })();
+    }
+    if (i > 0) {
       shown = await load();
       if (cachedSet) shown = shown.filter((r) => cachedSet.has(r.info_hash));
     }
@@ -10190,6 +10236,7 @@ async function harvestVrStudios() {
       await new Promise((r) => setTimeout(r, VR_HARVEST_GAP_MS));
     }
     logger.info("adult", `catalog: +${added} from the VR studio harvest (${VR_STUDIOS.length} studios)`);
+    if (added > 0) for (const c of [0, 1]) await forgetHashes(`vr-browse:${c}`);
   } finally {
     vrHarvestRunning = false;
   }
@@ -10198,7 +10245,11 @@ async function browseVr(library, opts = {}) {
   void library;
   void harvestVrStudios().catch(() => {
   });
-  return presentRows(async () => {
+  const cachedOnly = await adultCachedOnly();
+  const key = `vr-browse:${cachedOnly ? 1 : 0}`;
+  const hit = await cachedCards(key, cachedOnly);
+  if (hit) return hit;
+  const cards = await presentRows(async () => {
     const seen = /* @__PURE__ */ new Set();
     const out = [];
     for (const term of VR_CATALOG_TERMS) {
@@ -10210,25 +10261,35 @@ async function browseVr(library, opts = {}) {
     }
     return out;
   }, opts.signal);
+  return opts.signal?.aborted ? cards : storeCards(key, cards);
 }
 var ENRICH_ON_SEARCH = 48;
+var ENRICH_BUDGET_MS = 6e3;
 async function adultListCatalogStreams(infoHash, signal) {
+  const cachedOnly = await adultCachedOnly();
+  const key = `streams:${cachedOnly ? 1 : 0}:${infoHash.toLowerCase()}`;
+  const hit = await cachedHashes(key);
+  if (hit) return (await rowsFor(hit)).map(toStreamOption);
   const anchor = await getAdultCatalogEntry(infoHash);
   if (!anchor) return [];
   const rows = anchor.tpdb_id ? await listAdultCatalogByTpdbId(anchor.tpdb_id) : [anchor];
   if (!rows.some((r) => r.info_hash === anchor.info_hash)) rows.unshift(anchor);
   let pool = rows.slice().sort((a, b) => (b.size_bytes ?? 0) - (a.size_bytes ?? 0));
-  if (await adultCachedOnly()) {
+  if (cachedOnly) {
     const cachedSet = await freshCachedSet(pool.map((r) => r.info_hash).slice(0, 60), signal).catch(() => /* @__PURE__ */ new Set());
     pool = pool.filter((r) => cachedSet.has(r.info_hash));
   }
-  return pool.map((r) => ({
+  if (!signal?.aborted) await storeHashes(key, pool.map((r) => r.info_hash));
+  return pool.map(toStreamOption);
+}
+function toStreamOption(r) {
+  return {
     infoHash: r.info_hash,
     rawTitle: r.raw_title,
     sizeBytes: r.size_bytes,
     resolution: parseResolutionLabel(r.raw_title),
     isVr: detectVr(r.raw_title)
-  }));
+  };
 }
 async function adultResolveCatalog(infoHash, signal) {
   const row = await getAdultCatalogEntry(infoHash);
