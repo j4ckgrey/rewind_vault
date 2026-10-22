@@ -9061,6 +9061,11 @@ var VR_TOKEN = /\bvr\b/i;
 var VR_STUDIO_SUFFIX = /[a-z]{2,}vr\b/i;
 var VR_PROJECTION = /\b(?:180x180|180_180|360x180|mkx200|mkx220|mkx[0-9]{3}|fisheye190|fisheye|rf52|lr_?180|tb_?180|sbs|oculus|gearvr|smartphone_?vr|180°|360°)\b/i;
 var VR_STUDIO_NAME = /\b(?:vr(?:bangers|conk|hush|cosplayx|spy|latina|allure|btrans|bgay|smash|porn(?:jack)?|edging|intimacy|oomed|hub)|slr(?:originals)?|sexlikereal|virtualrealporn|virtualtaboo|virtualrealtrans|virtualrealgay|povr|holivr|tmwvrnet|realitylovers|vrb)\b/i;
+var MIN_VR_BYTES = 500 * 1024 * 1024;
+function detectVrRelease(rawTitle, sizeBytes) {
+  if (sizeBytes != null && sizeBytes > 0 && sizeBytes < MIN_VR_BYTES) return false;
+  return detectVr(rawTitle);
+}
 function detectVr(rawTitle) {
   if (!rawTitle) return false;
   return VR_TOKEN.test(rawTitle) || VR_STUDIO_SUFFIX.test(rawTitle) || VR_STUDIO_NAME.test(rawTitle) || VR_PROJECTION.test(rawTitle);
@@ -9733,7 +9738,7 @@ async function gatherCandidates(ctx, signal) {
     rawTitle: t.rawTitle,
     sizeBytes: t.sizeBytes,
     resolution: parseResolutionLabel(t.rawTitle),
-    isVr: detectVr(t.rawTitle)
+    isVr: detectVrRelease(t.rawTitle, t.sizeBytes)
   }));
 }
 async function adultListStreams(library, itemId, signal) {
@@ -10054,7 +10059,7 @@ function toCard2(row, cached) {
     sizeBytes: row.size_bytes,
     infoHash: row.info_hash,
     resolution: parseResolutionLabel(row.raw_title),
-    isVr: detectVr(row.raw_title),
+    isVr: detectVrRelease(row.raw_title, row.size_bytes),
     cached
   };
 }
@@ -10268,7 +10273,7 @@ async function vrRows() {
   const out = [];
   for (const term of VR_CATALOG_TERMS) {
     for (const r of await searchAdultCatalog(term, { matchedOnly: false, limit: 300 })) {
-      if (seen.has(r.info_hash) || !detectVr(r.raw_title) || !isAdultConfident(r)) continue;
+      if (seen.has(r.info_hash) || !detectVrRelease(r.raw_title, r.size_bytes) || !isAdultConfident(r)) continue;
       seen.add(r.info_hash);
       out.push(r);
     }
@@ -10277,7 +10282,7 @@ async function vrRows() {
 }
 function railLoader(id) {
   if (id === "new") {
-    return async () => (await searchAdultCatalog("", { matchedOnly: false, limit: 400 })).filter((r) => isAdultConfident(r) && !detectVr(r.raw_title)).sort(byNewest).slice(0, RAIL_CANDIDATES);
+    return async () => (await searchAdultCatalog("", { matchedOnly: false, limit: 400 })).filter((r) => isAdultConfident(r) && !detectVrRelease(r.raw_title, r.size_bytes)).sort(byNewest).slice(0, RAIL_CANDIDATES);
   }
   if (id === "vr-new") return async () => (await vrRows()).sort(byNewest).slice(0, RAIL_CANDIDATES);
   if (id.startsWith("studio:")) {
@@ -10324,7 +10329,7 @@ function toStreamOption(r) {
     rawTitle: r.raw_title,
     sizeBytes: r.size_bytes,
     resolution: parseResolutionLabel(r.raw_title),
-    isVr: detectVr(r.raw_title)
+    isVr: detectVrRelease(r.raw_title, r.size_bytes)
   };
 }
 async function adultResolveCatalog(infoHash, signal) {
