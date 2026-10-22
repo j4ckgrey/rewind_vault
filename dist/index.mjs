@@ -9153,6 +9153,16 @@ function pickImage(...vals) {
   }
   return null;
 }
+function landscapeImage(url) {
+  if (!url) return null;
+  const m = /^https?:\/\/thumb\.theporndb\.net\/[^/]+\/\d+x\d+\/smart\/(?:filters:[^/]*\/)?(.+)$/.exec(url);
+  if (!m) return url;
+  try {
+    return `https://cdn.theporndb.net/${decodeURIComponent(m[1])}`;
+  } catch {
+    return url;
+  }
+}
 function normalize(raw, contentType) {
   if (!raw || typeof raw !== "object") return null;
   const uuid = pickString(raw.uuid, raw._id, raw.id != null ? String(raw.id) : void 0);
@@ -9518,7 +9528,8 @@ function toCard(meta2) {
     contentType: meta2.contentType,
     uuid: meta2.uuid,
     title: meta2.title,
-    posterUrl: meta2.posterUrl,
+    // Scene cards are landscape: the still, not TPDB's portrait crop of it.
+    posterUrl: meta2.contentType === "scenes" ? meta2.backgroundUrl ?? landscapeImage(meta2.posterUrl) : meta2.posterUrl,
     backgroundUrl: meta2.backgroundUrl,
     date: meta2.date,
     year: yearOf(meta2),
@@ -9951,7 +9962,8 @@ async function enrichOne(row, token, scenesOnly) {
       studio: hit.studio,
       performers: hit.performers,
       contentType: type === "movies" ? "movie" : "scene",
-      posterUrl: hit.posterUrl,
+      // Scenes: the landscape still (cards are landscape); movies: the cover.
+      posterUrl: type === "scenes" ? hit.backgroundUrl ?? landscapeImage(hit.posterUrl) : hit.posterUrl,
       date: hit.date,
       year: hit.date ? parseInt(hit.date.slice(0, 4), 10) || null : null,
       tpdbId: hit.uuid,
@@ -10022,7 +10034,8 @@ function toCard2(row, cached) {
     contentType: row.content_type === "movie" ? "movies" : "scenes",
     uuid: row.info_hash,
     title,
-    posterUrl: row.poster_url,
+    // Rows enriched before the landscape fix hold the portrait crop.
+    posterUrl: row.content_type === "movie" ? row.poster_url : landscapeImage(row.poster_url),
     backgroundUrl: null,
     date: row.date,
     year: row.year,
