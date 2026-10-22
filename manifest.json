@@ -9,7 +9,8 @@
     "meta",
     "artwork",
     "stream",
-    "resolve"
+    "resolve",
+    "automation"
   ],
   "types": [
     "adult",
@@ -48,6 +49,14 @@
     ],
     "features": [
       "adult"
+    ],
+    "automations": [
+      {
+        "id": "refresh-catalogs",
+        "name": "Refresh adult catalogs",
+        "description": "Rebuilds the adult catalog lists (New in VR, VR studios, New releases, studios) — only releases cached on TorBox — and pulls new VR studio releases. Turn lists on in Catalogs → Vault.",
+        "intervalMinutes": 240
+      }
     ]
   },
   "catalogs": [

@@ -9013,6 +9013,7 @@ init_host();
 // src/catalog.ts
 var catalog_exports = {};
 __export(catalog_exports, {
+  RAIL_IDS: () => RAIL_IDS,
   SEED_STUDIOS: () => SEED_STUDIOS,
   VR_STUDIOS: () => VR_STUDIOS,
   adultListCatalogStreams: () => adultListCatalogStreams,
@@ -9023,6 +9024,7 @@ __export(catalog_exports, {
   harvestCatalog: () => harvestCatalog,
   isCatalogRail: () => isCatalogRail,
   liveHarvest: () => liveHarvest,
+  refreshCatalogRails: () => refreshCatalogRails,
   searchCatalog: () => searchCatalog
 });
 init_db();
@@ -10115,8 +10117,8 @@ async function cachedHashes(key) {
     return null;
   }
 }
-async function storeHashes(key, hashes) {
-  await kvSet(key, RESULTS_NS, JSON.stringify(hashes), RESULTS_TTL_S).catch(() => {
+async function storeHashes(key, hashes, ttlS = RESULTS_TTL_S) {
+  await kvSet(key, RESULTS_NS, JSON.stringify(hashes), ttlS).catch(() => {
   });
 }
 async function forgetHashes(key) {
@@ -10132,8 +10134,8 @@ async function cachedCards(key, cachedOnly) {
   if (!hashes) return null;
   return (await rowsFor(hashes)).map((r) => toCard2(r, cachedOnly ? true : void 0));
 }
-async function storeCards(key, cards) {
-  await storeHashes(key, cards.map((c) => c.infoHash).filter((h) => !!h));
+async function storeCards(key, cards, ttlS = RESULTS_TTL_S) {
+  await storeHashes(key, cards.map((c) => c.infoHash).filter((h) => !!h), ttlS);
   return cards;
 }
 async function searchCatalog(library, query, opts = {}) {
@@ -10173,14 +10175,7 @@ async function presentRows(load, signal, opts = {}) {
       if (signal?.aborted || Date.now() >= deadline) break;
       await Promise.all(unmatched.slice(i, i + 12).map((r) => enrichOne(r, token, true).catch(() => false)));
     }
-    const rest = unmatched.slice(i);
-    if (rest.length) {
-      void (async () => {
-        for (let j = 0; j < rest.length; j += 12) {
-          await Promise.all(rest.slice(j, j + 12).map((r) => enrichOne(r, token, true).catch(() => false)));
-        }
-      })();
-    }
+    enqueueEnrich(unmatched.slice(i), token);
     if (i > 0) {
       shown = await load();
       if (cachedSet) shown = shown.filter((r) => cachedSet.has(r.info_hash));
@@ -10263,7 +10258,7 @@ async function browseVr(library, opts = {}) {
   return opts.signal?.aborted ? cards : storeCards(key, cards);
 }
 var RAIL_SIZE = 40;
-var RAIL_ENRICH = 12;
+var RAIL_ENRICH = RAIL_SIZE;
 var RAIL_CANDIDATES = 150;
 function byNewest(a, b) {
   return (b.date ?? "").localeCompare(a.date ?? "") || b.added_at - a.added_at;
@@ -10295,14 +10290,67 @@ function railLoader(id) {
 function isCatalogRail(id) {
   return railLoader(id) !== null;
 }
-async function catalogRail(id, opts = {}) {
+var RAIL_IDS = [
+  "vr-new",
+  ...["MilfVR", "WankzVR", "VRBangers", "SexLikeReal", "BaDoinkVR", "CzechVR"].map((s) => `studio:${s}`),
+  "new",
+  ...["Brazzers", "Vixen", "Blacked", "Tushy", "Reality Kings", "Naughty America"].map((s) => `studio:${s}`)
+];
+var RAIL_TTL_S = 24 * 60 * 60;
+async function buildRail(id, signal) {
   const load = railLoader(id);
   if (!load) return [];
+  return (await presentRows(load, signal, { forceCached: true, enrichWaitMs: 0, enrichCount: RAIL_ENRICH })).slice(
+    0,
+    RAIL_SIZE
+  );
+}
+async function catalogRail(id, opts = {}) {
+  if (!railLoader(id)) return [];
   const key = `rail:${id}`;
   const hit = await cachedCards(key, true);
   if (hit) return hit;
-  const cards = (await presentRows(load, opts.signal, { forceCached: true, enrichWaitMs: 0, enrichCount: RAIL_ENRICH })).slice(0, RAIL_SIZE);
-  return opts.signal?.aborted ? cards : storeCards(key, cards);
+  const cards = await buildRail(id, opts.signal);
+  return opts.signal?.aborted ? cards : storeCards(key, cards, RAIL_TTL_S);
+}
+async function refreshCatalogRails() {
+  await harvestVrStudios().catch(() => {
+  });
+  let rails = 0;
+  let cards = 0;
+  for (const id of RAIL_IDS) {
+    const fresh = await buildRail(id).catch(() => []);
+    if (!fresh.length) continue;
+    await storeCards(`rail:${id}`, fresh, RAIL_TTL_S);
+    rails++;
+    cards += fresh.length;
+  }
+  logger.info("adult", `catalogs: refreshed ${rails}/${RAIL_IDS.length} rails, ${cards} cards`);
+  return { rails, cards };
+}
+var ENRICH_QUEUE_CONCURRENCY = 4;
+var enrichQueue = [];
+var enrichQueued = /* @__PURE__ */ new Set();
+var enrichWorkers = 0;
+function enqueueEnrich(rows, token) {
+  for (const row of rows) {
+    if (row.tpdb_id != null || enrichQueued.has(row.info_hash)) continue;
+    enrichQueued.add(row.info_hash);
+    enrichQueue.push({ row, token });
+  }
+  while (enrichWorkers < ENRICH_QUEUE_CONCURRENCY && enrichQueue.length) {
+    enrichWorkers++;
+    void (async () => {
+      try {
+        for (let job = enrichQueue.shift(); job; job = enrichQueue.shift()) {
+          await enrichOne(job.row, job.token, true).catch(() => false);
+          enrichQueued.delete(job.row.info_hash);
+        }
+      } finally {
+        enrichWorkers--;
+      }
+    })();
+  }
 }
 var ENRICH_ON_SEARCH = 48;
 var ENRICH_BUDGET_MS = 6e3;
@@ -11210,6 +11258,14 @@ var resources = {
   catalog: async (req) => ({
     metas: (isCatalogRail(req.id) ? await catalogRail(req.id) : await searchCatalog(req.extra.libraryId ? await libraryFromRequest(req) : {}, req.id)).map(resultMeta)
   }),
+  // automation/automation/refresh-catalogs.json — manifest rewind.automations.
+  automation: async ({ id }) => {
+    if (id === "refresh-catalogs") {
+      const r = await refreshCatalogRails();
+      return { ok: true, message: `${r.rails} lists, ${r.cards} cached releases` };
+    }
+    throw new Error(`unknown automation "${id}"`);
+  },
   meta: ({ id }) => meta(id),
   artwork: ({ id }) => artwork(id),
   stream: streams,
@@ -11228,7 +11284,8 @@ var manifest_default = {
     "meta",
     "artwork",
     "stream",
-    "resolve"
+    "resolve",
+    "automation"
   ],
   types: [
     "adult",
@@ -11267,6 +11324,14 @@ var manifest_default = {
     ],
     features: [
       "adult"
+    ],
+    automations: [
+      {
+        id: "refresh-catalogs",
+        name: "Refresh adult catalogs",
+        description: "Rebuilds the adult catalog lists (New in VR, VR studios, New releases, studios) \u2014 only releases cached on TorBox \u2014 and pulls new VR studio releases. Turn lists on in Catalogs \u2192 Vault.",
+        intervalMinutes: 240
+      }
     ]
   },
   catalogs: [
