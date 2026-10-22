@@ -2,7 +2,7 @@
   "id": "rewind.vault",
   "name": "Vault",
   "version": "2.0.1",
-  "description": "Adult content for Rewind \u2014 password-gated catalog + search (ThePornDB metadata; Zilean / Torznab / apiJAV / Rapidgator sourcing; on-demand debrid playback). Stays fully isolated from every normal library. Installing reveals the Adult library kind, the Adult sources section, and the ThePornDB credential.",
+  "description": "Adult content for Rewind — password-gated catalog + search (ThePornDB metadata; Zilean / Torznab / apiJAV / Rapidgator sourcing; on-demand debrid playback). Stays fully isolated from every normal library. Installing reveals the Adult library kind, the Adult sources section, and the ThePornDB credential.",
   "resources": [
     "catalog",
     "search",
@@ -43,11 +43,257 @@
         "key": "theporndb_api_key",
         "label": "ThePornDB",
         "category": "Adult Content",
-        "description": "API token from api.theporndb.net \u2192 API tokens. Powers adult metadata + search."
+        "description": "API token from api.theporndb.net → API tokens. Powers adult metadata + search."
       }
     ],
     "features": [
       "adult"
     ]
-  }
+  },
+  "catalogs": [
+    {
+      "id": "vr-new",
+      "type": "adult",
+      "name": "New in VR",
+      "names": {
+        "en": "New in VR",
+        "de": "Neu in VR",
+        "fr": "Nouveautés VR",
+        "it": "Novità in VR",
+        "es": "Novedades en VR",
+        "nl": "Nieuw in VR",
+        "pt": "Novidades em VR",
+        "zh": "最新 VR"
+      },
+      "group": "vr",
+      "groupNames": {
+        "en": "VR",
+        "de": "VR",
+        "fr": "VR",
+        "it": "VR",
+        "es": "VR",
+        "nl": "VR",
+        "pt": "VR",
+        "zh": "VR"
+      }
+    },
+    {
+      "id": "studio:MilfVR",
+      "type": "adult",
+      "name": "MilfVR",
+      "group": "vr",
+      "groupNames": {
+        "en": "VR",
+        "de": "VR",
+        "fr": "VR",
+        "it": "VR",
+        "es": "VR",
+        "nl": "VR",
+        "pt": "VR",
+        "zh": "VR"
+      }
+    },
+    {
+      "id": "studio:WankzVR",
+      "type": "adult",
+      "name": "WankzVR",
+      "group": "vr",
+      "groupNames": {
+        "en": "VR",
+        "de": "VR",
+        "fr": "VR",
+        "it": "VR",
+        "es": "VR",
+        "nl": "VR",
+        "pt": "VR",
+        "zh": "VR"
+      }
+    },
+    {
+      "id": "studio:VRBangers",
+      "type": "adult",
+      "name": "VRBangers",
+      "group": "vr",
+      "groupNames": {
+        "en": "VR",
+        "de": "VR",
+        "fr": "VR",
+        "it": "VR",
+        "es": "VR",
+        "nl": "VR",
+        "pt": "VR",
+        "zh": "VR"
+      }
+    },
+    {
+      "id": "studio:SexLikeReal",
+      "type": "adult",
+      "name": "SexLikeReal",
+      "group": "vr",
+      "groupNames": {
+        "en": "VR",
+        "de": "VR",
+        "fr": "VR",
+        "it": "VR",
+        "es": "VR",
+        "nl": "VR",
+        "pt": "VR",
+        "zh": "VR"
+      }
+    },
+    {
+      "id": "studio:BaDoinkVR",
+      "type": "adult",
+      "name": "BaDoinkVR",
+      "group": "vr",
+      "groupNames": {
+        "en": "VR",
+        "de": "VR",
+        "fr": "VR",
+        "it": "VR",
+        "es": "VR",
+        "nl": "VR",
+        "pt": "VR",
+        "zh": "VR"
+      }
+    },
+    {
+      "id": "studio:CzechVR",
+      "type": "adult",
+      "name": "CzechVR",
+      "group": "vr",
+      "groupNames": {
+        "en": "VR",
+        "de": "VR",
+        "fr": "VR",
+        "it": "VR",
+        "es": "VR",
+        "nl": "VR",
+        "pt": "VR",
+        "zh": "VR"
+      }
+    },
+    {
+      "id": "new",
+      "type": "adult",
+      "name": "New releases",
+      "names": {
+        "en": "New releases",
+        "de": "Neuerscheinungen",
+        "fr": "Nouveautés",
+        "it": "Nuove uscite",
+        "es": "Novedades",
+        "nl": "Nieuw verschenen",
+        "pt": "Lançamentos",
+        "zh": "最新发布"
+      },
+      "group": "new",
+      "groupNames": {
+        "en": "New",
+        "de": "Neu",
+        "fr": "Nouveau",
+        "it": "Nuovo",
+        "es": "Nuevo",
+        "nl": "Nieuw",
+        "pt": "Novo",
+        "zh": "最新"
+      }
+    },
+    {
+      "id": "studio:Brazzers",
+      "type": "adult",
+      "name": "Brazzers",
+      "group": "studios",
+      "groupNames": {
+        "en": "Studios",
+        "de": "Studios",
+        "fr": "Studios",
+        "it": "Studi",
+        "es": "Estudios",
+        "nl": "Studio's",
+        "pt": "Estúdios",
+        "zh": "制作商"
+      }
+    },
+    {
+      "id": "studio:Vixen",
+      "type": "adult",
+      "name": "Vixen",
+      "group": "studios",
+      "groupNames": {
+        "en": "Studios",
+        "de": "Studios",
+        "fr": "Studios",
+        "it": "Studi",
+        "es": "Estudios",
+        "nl": "Studio's",
+        "pt": "Estúdios",
+        "zh": "制作商"
+      }
+    },
+    {
+      "id": "studio:Blacked",
+      "type": "adult",
+      "name": "Blacked",
+      "group": "studios",
+      "groupNames": {
+        "en": "Studios",
+        "de": "Studios",
+        "fr": "Studios",
+        "it": "Studi",
+        "es": "Estudios",
+        "nl": "Studio's",
+        "pt": "Estúdios",
+        "zh": "制作商"
+      }
+    },
+    {
+      "id": "studio:Tushy",
+      "type": "adult",
+      "name": "Tushy",
+      "group": "studios",
+      "groupNames": {
+        "en": "Studios",
+        "de": "Studios",
+        "fr": "Studios",
+        "it": "Studi",
+        "es": "Estudios",
+        "nl": "Studio's",
+        "pt": "Estúdios",
+        "zh": "制作商"
+      }
+    },
+    {
+      "id": "studio:Reality Kings",
+      "type": "adult",
+      "name": "Reality Kings",
+      "group": "studios",
+      "groupNames": {
+        "en": "Studios",
+        "de": "Studios",
+        "fr": "Studios",
+        "it": "Studi",
+        "es": "Estudios",
+        "nl": "Studio's",
+        "pt": "Estúdios",
+        "zh": "制作商"
+      }
+    },
+    {
+      "id": "studio:Naughty America",
+      "type": "adult",
+      "name": "Naughty America",
+      "group": "studios",
+      "groupNames": {
+        "en": "Studios",
+        "de": "Studios",
+        "fr": "Studios",
+        "it": "Studi",
+        "es": "Estudios",
+        "nl": "Studio's",
+        "pt": "Estúdios",
+        "zh": "制作商"
+      }
+    }
+  ]
 }

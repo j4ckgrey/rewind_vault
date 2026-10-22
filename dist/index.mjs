@@ -9018,8 +9018,10 @@ __export(catalog_exports, {
   adultListCatalogStreams: () => adultListCatalogStreams,
   adultResolveCatalog: () => adultResolveCatalog,
   browseVr: () => browseVr,
+  catalogRail: () => catalogRail,
   enrichCatalogBatch: () => enrichCatalogBatch,
   harvestCatalog: () => harvestCatalog,
+  isCatalogRail: () => isCatalogRail,
   liveHarvest: () => liveHarvest,
   searchCatalog: () => searchCatalog
 });
@@ -10144,9 +10146,9 @@ async function searchCatalog(library, query, opts = {}) {
   );
   return opts.signal?.aborted ? cards : storeCards(key, cards);
 }
-async function presentRows(load, signal) {
+async function presentRows(load, signal, opts = {}) {
   const token = (await getAddonConfig()).theporndb_api_key;
-  const cachedOnly = await adultCachedOnly();
+  const cachedOnly = opts.forceCached === true || await adultCachedOnly();
   let shown = await load();
   let cachedSet = null;
   if (cachedOnly) {
@@ -10159,11 +10161,11 @@ async function presentRows(load, signal) {
     shown = shown.filter((r) => cachedSet.has(r.info_hash));
   }
   if (token) {
-    const unmatched = dedupRows(shown, cachedSet).filter((r) => r.tpdb_id == null).slice(0, ENRICH_ON_SEARCH);
-    const deadline = Date.now() + ENRICH_BUDGET_MS;
+    const unmatched = dedupRows(shown, cachedSet).filter((r) => r.tpdb_id == null).slice(0, opts.enrichCount ?? ENRICH_ON_SEARCH);
+    const deadline = Date.now() + (opts.enrichWaitMs ?? ENRICH_BUDGET_MS);
     let i = 0;
     for (; i < unmatched.length; i += 12) {
-      if (signal?.aborted || Date.now() > deadline) break;
+      if (signal?.aborted || Date.now() >= deadline) break;
       await Promise.all(unmatched.slice(i, i + 12).map((r) => enrichOne(r, token, true).catch(() => false)));
     }
     const rest = unmatched.slice(i);
@@ -10236,7 +10238,10 @@ async function harvestVrStudios() {
       await new Promise((r) => setTimeout(r, VR_HARVEST_GAP_MS));
     }
     logger.info("adult", `catalog: +${added} from the VR studio harvest (${VR_STUDIOS.length} studios)`);
-    if (added > 0) for (const c of [0, 1]) await forgetHashes(`vr-browse:${c}`);
+    if (added > 0) {
+      for (const c of [0, 1]) await forgetHashes(`vr-browse:${c}`);
+      for (const id of ["vr-new", ...VR_STUDIOS.map((s) => `studio:${s}`)]) await forgetHashes(`rail:${id}`);
+    }
   } finally {
     vrHarvestRunning = false;
   }
@@ -10249,18 +10254,49 @@ async function browseVr(library, opts = {}) {
   const key = `vr-browse:${cachedOnly ? 1 : 0}`;
   const hit = await cachedCards(key, cachedOnly);
   if (hit) return hit;
-  const cards = await presentRows(async () => {
-    const seen = /* @__PURE__ */ new Set();
-    const out = [];
-    for (const term of VR_CATALOG_TERMS) {
-      for (const r of await searchAdultCatalog(term, { matchedOnly: false, limit: 300 })) {
-        if (seen.has(r.info_hash) || !detectVr(r.raw_title) || !isAdultConfident(r)) continue;
-        seen.add(r.info_hash);
-        out.push(r);
-      }
+  const cards = await presentRows(vrRows, opts.signal);
+  return opts.signal?.aborted ? cards : storeCards(key, cards);
+}
+var RAIL_SIZE = 40;
+var RAIL_ENRICH = 12;
+var RAIL_CANDIDATES = 150;
+function byNewest(a, b) {
+  return (b.date ?? "").localeCompare(a.date ?? "") || b.added_at - a.added_at;
+}
+async function vrRows() {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const term of VR_CATALOG_TERMS) {
+    for (const r of await searchAdultCatalog(term, { matchedOnly: false, limit: 300 })) {
+      if (seen.has(r.info_hash) || !detectVr(r.raw_title) || !isAdultConfident(r)) continue;
+      seen.add(r.info_hash);
+      out.push(r);
     }
-    return out;
-  }, opts.signal);
+  }
+  return out;
+}
+function railLoader(id) {
+  if (id === "new") {
+    return async () => (await searchAdultCatalog("", { matchedOnly: false, limit: 400 })).filter((r) => isAdultConfident(r) && !detectVr(r.raw_title)).sort(byNewest).slice(0, RAIL_CANDIDATES);
+  }
+  if (id === "vr-new") return async () => (await vrRows()).sort(byNewest).slice(0, RAIL_CANDIDATES);
+  if (id.startsWith("studio:")) {
+    const studio = id.slice("studio:".length).trim();
+    if (!studio) return null;
+    return async () => (await searchAdultCatalog(studio, { matchedOnly: false, limit: 300 })).filter(isAdultConfident).sort(byNewest).slice(0, RAIL_CANDIDATES);
+  }
+  return null;
+}
+function isCatalogRail(id) {
+  return railLoader(id) !== null;
+}
+async function catalogRail(id, opts = {}) {
+  const load = railLoader(id);
+  if (!load) return [];
+  const key = `rail:${id}`;
+  const hit = await cachedCards(key, true);
+  if (hit) return hit;
+  const cards = (await presentRows(load, opts.signal, { forceCached: true, enrichWaitMs: 0, enrichCount: RAIL_ENRICH })).slice(0, RAIL_SIZE);
   return opts.signal?.aborted ? cards : storeCards(key, cards);
 }
 var ENRICH_ON_SEARCH = 48;
@@ -11163,9 +11199,11 @@ var resources = {
   search: async (req) => ({
     metas: (await adultSearch(await libraryFromRequest(req), req.id)).map(resultMeta)
   }),
-  // catalog/adult/<query>.json — the locally harvested catalog.
+  // catalog/adult/<rail>.json — a browse list from the manifest's `catalogs`
+  // (new, vr-new, studio:<x>; cached-on-TorBox only). Any other id is a
+  // free-text search of the locally harvested catalog (back-compat).
   catalog: async (req) => ({
-    metas: (await searchCatalog(req.extra.libraryId ? await libraryFromRequest(req) : {}, req.id)).map(resultMeta)
+    metas: (isCatalogRail(req.id) ? await catalogRail(req.id) : await searchCatalog(req.extra.libraryId ? await libraryFromRequest(req) : {}, req.id)).map(resultMeta)
   }),
   meta: ({ id }) => meta(id),
   artwork: ({ id }) => artwork(id),
@@ -11225,7 +11263,253 @@ var manifest_default = {
     features: [
       "adult"
     ]
-  }
+  },
+  catalogs: [
+    {
+      id: "vr-new",
+      type: "adult",
+      name: "New in VR",
+      names: {
+        en: "New in VR",
+        de: "Neu in VR",
+        fr: "Nouveaut\xE9s VR",
+        it: "Novit\xE0 in VR",
+        es: "Novedades en VR",
+        nl: "Nieuw in VR",
+        pt: "Novidades em VR",
+        zh: "\u6700\u65B0 VR"
+      },
+      group: "vr",
+      groupNames: {
+        en: "VR",
+        de: "VR",
+        fr: "VR",
+        it: "VR",
+        es: "VR",
+        nl: "VR",
+        pt: "VR",
+        zh: "VR"
+      }
+    },
+    {
+      id: "studio:MilfVR",
+      type: "adult",
+      name: "MilfVR",
+      group: "vr",
+      groupNames: {
+        en: "VR",
+        de: "VR",
+        fr: "VR",
+        it: "VR",
+        es: "VR",
+        nl: "VR",
+        pt: "VR",
+        zh: "VR"
+      }
+    },
+    {
+      id: "studio:WankzVR",
+      type: "adult",
+      name: "WankzVR",
+      group: "vr",
+      groupNames: {
+        en: "VR",
+        de: "VR",
+        fr: "VR",
+        it: "VR",
+        es: "VR",
+        nl: "VR",
+        pt: "VR",
+        zh: "VR"
+      }
+    },
+    {
+      id: "studio:VRBangers",
+      type: "adult",
+      name: "VRBangers",
+      group: "vr",
+      groupNames: {
+        en: "VR",
+        de: "VR",
+        fr: "VR",
+        it: "VR",
+        es: "VR",
+        nl: "VR",
+        pt: "VR",
+        zh: "VR"
+      }
+    },
+    {
+      id: "studio:SexLikeReal",
+      type: "adult",
+      name: "SexLikeReal",
+      group: "vr",
+      groupNames: {
+        en: "VR",
+        de: "VR",
+        fr: "VR",
+        it: "VR",
+        es: "VR",
+        nl: "VR",
+        pt: "VR",
+        zh: "VR"
+      }
+    },
+    {
+      id: "studio:BaDoinkVR",
+      type: "adult",
+      name: "BaDoinkVR",
+      group: "vr",
+      groupNames: {
+        en: "VR",
+        de: "VR",
+        fr: "VR",
+        it: "VR",
+        es: "VR",
+        nl: "VR",
+        pt: "VR",
+        zh: "VR"
+      }
+    },
+    {
+      id: "studio:CzechVR",
+      type: "adult",
+      name: "CzechVR",
+      group: "vr",
+      groupNames: {
+        en: "VR",
+        de: "VR",
+        fr: "VR",
+        it: "VR",
+        es: "VR",
+        nl: "VR",
+        pt: "VR",
+        zh: "VR"
+      }
+    },
+    {
+      id: "new",
+      type: "adult",
+      name: "New releases",
+      names: {
+        en: "New releases",
+        de: "Neuerscheinungen",
+        fr: "Nouveaut\xE9s",
+        it: "Nuove uscite",
+        es: "Novedades",
+        nl: "Nieuw verschenen",
+        pt: "Lan\xE7amentos",
+        zh: "\u6700\u65B0\u53D1\u5E03"
+      },
+      group: "new",
+      groupNames: {
+        en: "New",
+        de: "Neu",
+        fr: "Nouveau",
+        it: "Nuovo",
+        es: "Nuevo",
+        nl: "Nieuw",
+        pt: "Novo",
+        zh: "\u6700\u65B0"
+      }
+    },
+    {
+      id: "studio:Brazzers",
+      type: "adult",
+      name: "Brazzers",
+      group: "studios",
+      groupNames: {
+        en: "Studios",
+        de: "Studios",
+        fr: "Studios",
+        it: "Studi",
+        es: "Estudios",
+        nl: "Studio's",
+        pt: "Est\xFAdios",
+        zh: "\u5236\u4F5C\u5546"
+      }
+    },
+    {
+      id: "studio:Vixen",
+      type: "adult",
+      name: "Vixen",
+      group: "studios",
+      groupNames: {
+        en: "Studios",
+        de: "Studios",
+        fr: "Studios",
+        it: "Studi",
+        es: "Estudios",
+        nl: "Studio's",
+        pt: "Est\xFAdios",
+        zh: "\u5236\u4F5C\u5546"
+      }
+    },
+    {
+      id: "studio:Blacked",
+      type: "adult",
+      name: "Blacked",
+      group: "studios",
+      groupNames: {
+        en: "Studios",
+        de: "Studios",
+        fr: "Studios",
+        it: "Studi",
+        es: "Estudios",
+        nl: "Studio's",
+        pt: "Est\xFAdios",
+        zh: "\u5236\u4F5C\u5546"
+      }
+    },
+    {
+      id: "studio:Tushy",
+      type: "adult",
+      name: "Tushy",
+      group: "studios",
+      groupNames: {
+        en: "Studios",
+        de: "Studios",
+        fr: "Studios",
+        it: "Studi",
+        es: "Estudios",
+        nl: "Studio's",
+        pt: "Est\xFAdios",
+        zh: "\u5236\u4F5C\u5546"
+      }
+    },
+    {
+      id: "studio:Reality Kings",
+      type: "adult",
+      name: "Reality Kings",
+      group: "studios",
+      groupNames: {
+        en: "Studios",
+        de: "Studios",
+        fr: "Studios",
+        it: "Studi",
+        es: "Estudios",
+        nl: "Studio's",
+        pt: "Est\xFAdios",
+        zh: "\u5236\u4F5C\u5546"
+      }
+    },
+    {
+      id: "studio:Naughty America",
+      type: "adult",
+      name: "Naughty America",
+      group: "studios",
+      groupNames: {
+        en: "Studios",
+        de: "Studios",
+        fr: "Studios",
+        it: "Studi",
+        es: "Estudios",
+        nl: "Studio's",
+        pt: "Est\xFAdios",
+        zh: "\u5236\u4F5C\u5546"
+      }
+    }
+  ]
 };
 
 // src/plugin.ts
