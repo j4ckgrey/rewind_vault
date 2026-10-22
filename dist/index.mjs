@@ -9014,8 +9014,10 @@ init_host();
 var catalog_exports = {};
 __export(catalog_exports, {
   SEED_STUDIOS: () => SEED_STUDIOS,
+  VR_STUDIOS: () => VR_STUDIOS,
   adultListCatalogStreams: () => adultListCatalogStreams,
   adultResolveCatalog: () => adultResolveCatalog,
+  browseVr: () => browseVr,
   enrichCatalogBatch: () => enrichCatalogBatch,
   harvestCatalog: () => harvestCatalog,
   liveHarvest: () => liveHarvest,
@@ -9056,9 +9058,10 @@ function parseResolutionLabel(rawTitle) {
 var VR_TOKEN = /\bvr\b/i;
 var VR_STUDIO_SUFFIX = /[a-z]{2,}vr\b/i;
 var VR_PROJECTION = /\b(?:180x180|180_180|360x180|mkx200|mkx220|mkx[0-9]{3}|fisheye190|fisheye|rf52|lr_?180|tb_?180|sbs|oculus|gearvr|smartphone_?vr|180°|360°)\b/i;
+var VR_STUDIO_NAME = /\b(?:vr(?:bangers|conk|hush|cosplayx|spy|latina|allure|btrans|bgay|smash|porn(?:jack)?|edging|intimacy|oomed|hub)|slr(?:originals)?|sexlikereal|virtualrealporn|virtualtaboo|virtualrealtrans|virtualrealgay|povr|holivr|tmwvrnet|realitylovers|vrb)\b/i;
 function detectVr(rawTitle) {
   if (!rawTitle) return false;
-  return VR_TOKEN.test(rawTitle) || VR_STUDIO_SUFFIX.test(rawTitle) || VR_PROJECTION.test(rawTitle);
+  return VR_TOKEN.test(rawTitle) || VR_STUDIO_SUFFIX.test(rawTitle) || VR_STUDIO_NAME.test(rawTitle) || VR_PROJECTION.test(rawTitle);
 }
 
 // src/playback.ts
@@ -10100,25 +10103,113 @@ async function searchCatalog(library, query, opts = {}) {
   const cachedOnly = await adultCachedOnly();
   if (q) await liveHarvest(q, opts.signal).catch(() => {
   });
-  const visible = async () => (await searchAdultCatalog(q, { matchedOnly: false, limit: 240 })).filter(isAdultConfident);
-  let shown = await visible();
+  return presentRows(
+    async () => (await searchAdultCatalog(q, { matchedOnly: false, limit: 240 })).filter(isAdultConfident),
+    opts.signal
+  );
+}
+async function presentRows(load, signal) {
+  const token = (await getAddonConfig()).theporndb_api_key;
+  const cachedOnly = await adultCachedOnly();
+  let shown = await load();
   let cachedSet = null;
   if (cachedOnly) {
-    cachedSet = await freshCachedSet(shown.map((r) => r.info_hash).slice(0, 150), opts.signal).catch(() => /* @__PURE__ */ new Set());
+    cachedSet = /* @__PURE__ */ new Set();
+    const hashes = shown.map((r) => r.info_hash).slice(0, 450);
+    for (let i = 0; i < hashes.length; i += 150) {
+      const part = await freshCachedSet(hashes.slice(i, i + 150), signal).catch(() => /* @__PURE__ */ new Set());
+      for (const h of part) cachedSet.add(h);
+    }
     shown = shown.filter((r) => cachedSet.has(r.info_hash));
   }
   if (token) {
     const unmatched = dedupRows(shown, cachedSet).filter((r) => r.tpdb_id == null).slice(0, ENRICH_ON_SEARCH);
     for (let i = 0; i < unmatched.length; i += 12) {
-      if (opts.signal?.aborted) break;
+      if (signal?.aborted) break;
       await Promise.all(unmatched.slice(i, i + 12).map((r) => enrichOne(r, token, true).catch(() => false)));
     }
     if (unmatched.length) {
-      shown = await visible();
+      shown = await load();
       if (cachedSet) shown = shown.filter((r) => cachedSet.has(r.info_hash));
     }
   }
   return dedupRows(shown, cachedSet).map((r) => toCard2(r, cachedSet ? true : void 0));
+}
+var VR_STUDIOS = [
+  "MilfVR",
+  "WankzVR",
+  "VRBangers",
+  "BaDoinkVR",
+  "CzechVR",
+  "VRConk",
+  "RealJamVR",
+  "VirtualTaboo",
+  "NaughtyAmericaVR",
+  "VRHush",
+  "SexLikeReal",
+  "SLR Originals",
+  "DarkRoomVR",
+  "VRCosplayX",
+  "18VR",
+  "TmwVRnet",
+  "POVR",
+  "VirtualRealPorn",
+  "LethalHardcoreVR",
+  "Brazzers VR",
+  "StasyQVR",
+  "VRAllure",
+  "VRSpy",
+  "VRLatina",
+  "HoloGirlsVR",
+  "BlowVR",
+  "KinkVR",
+  "SinsVR",
+  "VRPornJack",
+  "Wankitnow VR"
+];
+var VR_CATALOG_TERMS = ["vr", "slr", "sexlikereal", "virtualrealporn", "virtualtaboo", "povr", "180", "mkx", "fisheye"];
+var VR_HARVEST_KEY = "vr_harvest_at";
+var VR_HARVEST_NS = "adult";
+var VR_HARVEST_EVERY_S = 12 * 60 * 60;
+var VR_HARVEST_GAP_MS = 2500;
+var vrHarvestRunning = false;
+async function harvestVrStudios() {
+  if (vrHarvestRunning) return;
+  if (await kvGet(VR_HARVEST_KEY, VR_HARVEST_NS).catch(() => null)) return;
+  vrHarvestRunning = true;
+  await kvSet(VR_HARVEST_KEY, VR_HARVEST_NS, (/* @__PURE__ */ new Date()).toISOString(), VR_HARVEST_EVERY_S).catch(() => {
+  });
+  try {
+    const urls = await zileanUrls();
+    let added = 0;
+    for (const studio of VR_STUDIOS) {
+      try {
+        added += await ingest(await harvestTerm(urls, studio), studio);
+      } catch {
+      }
+      await new Promise((r) => setTimeout(r, VR_HARVEST_GAP_MS));
+    }
+    logger.info("adult", `catalog: +${added} from the VR studio harvest (${VR_STUDIOS.length} studios)`);
+  } finally {
+    vrHarvestRunning = false;
+  }
+}
+async function browseVr(library, opts = {}) {
+  void library;
+  void harvestVrStudios().catch(() => {
+  });
+  return presentRows(async () => {
+    const seen = /* @__PURE__ */ new Set();
+    const out = [];
+    for (const term of VR_CATALOG_TERMS) {
+      for (const r of await searchAdultCatalog(term, { matchedOnly: false, limit: 300 })) {
+        if (seen.has(r.info_hash) || !detectVr(r.raw_title) || !isAdultConfident(r)) continue;
+        seen.add(r.info_hash);
+        out.push(r);
+      }
+    }
+    return out;
+  }, opts.signal);
 }
 var ENRICH_ON_SEARCH = 48;
 async function adultListCatalogStreams(infoHash, signal) {
