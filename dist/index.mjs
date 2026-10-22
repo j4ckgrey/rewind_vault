@@ -9285,49 +9285,58 @@ var KNABEN_URL = "https://api.knaben.org/v1";
 var XXX_CATEGORY_MIN = 5e6;
 var XXX_CATEGORY_MAX = 5999999;
 var XXX_TAG = /\bxxx\b/i;
+var NON_VIDEO_CATEGORY = (c) => c >= 5004e3 && c < 5005e3;
+var NON_VIDEO_NAME = /\.(zip|rar|7z|cbz|cbr|pdf|epub|jpe?g|png|gif)\s*$/i;
 function normalize2(raw) {
   const infoHash = typeof raw?.hash === "string" ? raw.hash.toLowerCase() : "";
   const rawTitle = typeof raw?.title === "string" ? raw.title.trim() : "";
-  if (!/^[a-f0-9]{40}$/.test(infoHash) || !rawTitle) return null;
+  if (!/^[a-f0-9]{40}$/.test(infoHash) || !rawTitle || NON_VIDEO_NAME.test(rawTitle)) return null;
   const bytes = typeof raw?.bytes === "number" && raw.bytes > 0 ? raw.bytes : null;
   const cats = Array.isArray(raw?.categoryId) ? raw.categoryId : [];
+  if (cats.some((c) => typeof c === "number" && NON_VIDEO_CATEGORY(c))) return null;
   const xxxCategory = cats.some((c) => typeof c === "number" && c >= XXX_CATEGORY_MIN && c <= XXX_CATEGORY_MAX);
   return { rawTitle, infoHash, sizeBytes: bytes, adult: xxxCategory || XXX_TAG.test(rawTitle) };
 }
-async function knabenSearch(query, opts = {}) {
-  const q = query.trim();
-  if (!q) return [];
+async function knabenQuery(body, signal) {
   try {
     const res = await fetch(KNABEN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({
-        query: q,
         search_type: "100%",
         search_field: "title",
         order_by: "seeders",
         order_direction: "desc",
-        size: opts.limit ?? 50,
         hide_unsafe: true,
-        hide_xxx: false
+        hide_xxx: false,
+        ...body
       }),
-      signal: opts.signal
+      signal
     });
     if (!res.ok) return [];
     const data = await res.json();
-    const list = Array.isArray(data?.hits) ? data.hits : [];
-    const seen = /* @__PURE__ */ new Set();
-    const out = [];
-    for (const item of list) {
-      const t = normalize2(item);
-      if (!t || seen.has(t.infoHash)) continue;
-      seen.add(t.infoHash);
-      out.push(t);
-    }
-    return out;
+    return Array.isArray(data?.hits) ? data.hits : [];
   } catch {
     return [];
   }
+}
+async function knabenSearch(query, opts = {}) {
+  const q = query.trim();
+  if (!q) return [];
+  const size = opts.limit ?? 50;
+  const [byCategory, byTag] = await Promise.all([
+    knabenQuery({ query: q, size, categories: [XXX_CATEGORY_MIN] }, opts.signal),
+    XXX_TAG.test(q) ? Promise.resolve([]) : knabenQuery({ query: `${q} xxx`, size }, opts.signal)
+  ]);
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const item of [...byCategory, ...byTag]) {
+    const t = normalize2(item);
+    if (!t || seen.has(t.infoHash)) continue;
+    seen.add(t.infoHash);
+    out.push(t);
+  }
+  return out;
 }
 
 // src/zilean.ts
@@ -9842,6 +9851,9 @@ async function getTorBox() {
   const account = debrids.find((a) => a.provider === "torbox" && a.enabled === 1);
   return account ? new TorBoxResolver(account) : null;
 }
+function fromKnaben(t) {
+  return { ...t, parsedTitle: t.rawTitle, category: null, year: null, site: null, episodeCode: null };
+}
 async function harvestTerm(urls, term, signal) {
   const variants = Array.from(/* @__PURE__ */ new Set([term, term.replace(/\s+/g, "")])).filter(Boolean);
   const merged = /* @__PURE__ */ new Map();
@@ -9853,6 +9865,9 @@ async function harvestTerm(urls, term, signal) {
       ]);
       for (const t of [...a, ...b]) if (t.infoHash && !merged.has(t.infoHash)) merged.set(t.infoHash, t);
     }
+  }
+  for (const k of await knabenSearch(term, { signal, limit: 150 })) {
+    if (!merged.has(k.infoHash)) merged.set(k.infoHash, fromKnaben(k));
   }
   return [...merged.values()];
 }
@@ -9874,17 +9889,12 @@ async function liveHarvest(query, signal) {
   const q = query.trim();
   if (!q) return 0;
   const urls = await zileanUrls();
-  if (!urls.length) return 0;
   const added = await ingest(await harvestTerm(urls, q, signal), q);
   if (added > 0) logger.info("adult", `catalog: +${added} from live search "${q}"`);
   return added;
 }
 async function harvestCatalog(signal) {
   const urls = await zileanUrls();
-  if (!urls.length) {
-    logger.warn("adult", "catalog crawl skipped: no Zilean adult source configured");
-    return 0;
-  }
   let added = 0;
   for (const term of SEED_STUDIOS) {
     if (signal?.aborted) break;
