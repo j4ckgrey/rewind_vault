@@ -10087,23 +10087,27 @@ async function searchCatalog(library, query, opts = {}) {
   const cachedOnly = await adultCachedOnly();
   if (q) await liveHarvest(q, opts.signal).catch(() => {
   });
-  let rows = await searchAdultCatalog(q, { matchedOnly: false, limit: 240 });
-  let shown = rows.filter(isAdultConfident);
+  const visible = async () => (await searchAdultCatalog(q, { matchedOnly: false, limit: 240 })).filter(isAdultConfident);
+  let shown = await visible();
+  let cachedSet = null;
+  if (cachedOnly) {
+    cachedSet = await freshCachedSet(shown.map((r) => r.info_hash).slice(0, 150), opts.signal).catch(() => /* @__PURE__ */ new Set());
+    shown = shown.filter((r) => cachedSet.has(r.info_hash));
+  }
   if (token) {
-    const unmatched = shown.filter((r) => r.tpdb_id == null).slice(0, 24);
+    const unmatched = dedupRows(shown, cachedSet).filter((r) => r.tpdb_id == null).slice(0, ENRICH_ON_SEARCH);
+    for (let i = 0; i < unmatched.length; i += 12) {
+      if (opts.signal?.aborted) break;
+      await Promise.all(unmatched.slice(i, i + 12).map((r) => enrichOne(r, token, true).catch(() => false)));
+    }
     if (unmatched.length) {
-      await Promise.all(unmatched.map((r) => enrichOne(r, token, true).catch(() => false)));
-      rows = await searchAdultCatalog(q, { matchedOnly: false, limit: 240 });
-      shown = rows.filter(isAdultConfident);
+      shown = await visible();
+      if (cachedSet) shown = shown.filter((r) => cachedSet.has(r.info_hash));
     }
   }
-  if (cachedOnly) {
-    const cachedSet = await freshCachedSet(shown.map((r) => r.info_hash).slice(0, 150), opts.signal).catch(() => /* @__PURE__ */ new Set());
-    shown = shown.filter((r) => cachedSet.has(r.info_hash));
-    return dedupRows(shown, cachedSet).map((r) => toCard2(r, true));
-  }
-  return dedupRows(shown, null).map((r) => toCard2(r));
+  return dedupRows(shown, cachedSet).map((r) => toCard2(r, cachedSet ? true : void 0));
 }
+var ENRICH_ON_SEARCH = 48;
 async function adultListCatalogStreams(infoHash, signal) {
   const anchor = await getAdultCatalogEntry(infoHash);
   if (!anchor) return [];
