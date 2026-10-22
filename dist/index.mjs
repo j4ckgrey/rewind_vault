@@ -9039,6 +9039,7 @@ __export(search_exports, {
   adultListStreams: () => adultListStreams,
   adultResolveItem: () => adultResolveItem,
   adultSearch: () => adultSearch,
+  compareReleaseDate: () => compareReleaseDate,
   fileNameMatchesMeta: () => fileNameMatchesMeta,
   isRelevant: () => isRelevant
 });
@@ -9279,6 +9280,56 @@ async function tpdbGetPerformer(uuid, opts) {
   return data ? normalizePerformer(data) : null;
 }
 
+// src/knaben.ts
+var KNABEN_URL = "https://api.knaben.org/v1";
+var XXX_CATEGORY_MIN = 5e6;
+var XXX_CATEGORY_MAX = 5999999;
+var XXX_TAG = /\bxxx\b/i;
+function normalize2(raw) {
+  const infoHash = typeof raw?.hash === "string" ? raw.hash.toLowerCase() : "";
+  const rawTitle = typeof raw?.title === "string" ? raw.title.trim() : "";
+  if (!/^[a-f0-9]{40}$/.test(infoHash) || !rawTitle) return null;
+  const bytes = typeof raw?.bytes === "number" && raw.bytes > 0 ? raw.bytes : null;
+  const cats = Array.isArray(raw?.categoryId) ? raw.categoryId : [];
+  const xxxCategory = cats.some((c) => typeof c === "number" && c >= XXX_CATEGORY_MIN && c <= XXX_CATEGORY_MAX);
+  return { rawTitle, infoHash, sizeBytes: bytes, adult: xxxCategory || XXX_TAG.test(rawTitle) };
+}
+async function knabenSearch(query, opts = {}) {
+  const q = query.trim();
+  if (!q) return [];
+  try {
+    const res = await fetch(KNABEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        query: q,
+        search_type: "100%",
+        search_field: "title",
+        order_by: "seeders",
+        order_direction: "desc",
+        size: opts.limit ?? 50,
+        hide_unsafe: true,
+        hide_xxx: false
+      }),
+      signal: opts.signal
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const list = Array.isArray(data?.hits) ? data.hits : [];
+    const seen = /* @__PURE__ */ new Set();
+    const out = [];
+    for (const item of list) {
+      const t = normalize2(item);
+      if (!t || seen.has(t.infoHash)) continue;
+      seen.add(t.infoHash);
+      out.push(t);
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 // src/zilean.ts
 var SEARCH_PATH = "/dmm/search";
 var FILTERED_PATH = "/dmm/filtered";
@@ -9286,7 +9337,7 @@ function toNumber(v) {
   const n = typeof v === "string" ? parseFloat(v) : v;
   return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : null;
 }
-function normalize2(raw) {
+function normalize3(raw) {
   const infoHash = typeof raw?.info_hash === "string" ? raw.info_hash.toLowerCase() : "";
   const rawTitle = typeof raw?.raw_title === "string" ? raw.raw_title : "";
   if (!infoHash || !rawTitle) return null;
@@ -9319,7 +9370,7 @@ async function zileanSearch(baseUrl, query, opts = {}) {
     const seen = /* @__PURE__ */ new Set();
     const out = [];
     for (const item of list) {
-      const t = normalize2(item);
+      const t = normalize3(item);
       if (!t || seen.has(t.infoHash)) continue;
       seen.add(t.infoHash);
       out.push(t);
@@ -9342,7 +9393,7 @@ async function zileanFiltered(baseUrl, query, opts = {}) {
     const seen = /* @__PURE__ */ new Set();
     const out = [];
     for (const item of list) {
-      const t = normalize2(item);
+      const t = normalize3(item);
       if (!t || seen.has(t.infoHash)) continue;
       seen.add(t.infoHash);
       out.push(t);
@@ -9381,6 +9432,31 @@ function words(s) {
   return s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4);
 }
 var MAINSTREAM_FINGERPRINT = /\b(19|20)\d{2}\b[\s\S]*\b(blu-?ray|web-?dl|web-?rip|hdrip|brrip|bdrip|dvdrip|hdtv|x264|x265|h\.?264|h\.?265|hevc|amzn|hmax|dsnp|nf|atvp|rarbg|yts|yify)\b/i;
+var RELEASE_DATE = /(?:^|[^0-9])((?:19|20)?\d{2})[ ._-](\d{2})[ ._-](\d{2})(?![0-9])/;
+var RELEASE_DATE_DMY = /(?:^|[^0-9])(\d{2})[ ._-](\d{2})[ ._-]((?:19|20)\d{2})(?![0-9])/;
+function releaseDay(name) {
+  let y, mo, d;
+  const dmy = RELEASE_DATE_DMY.exec(name);
+  const m = dmy ? null : RELEASE_DATE.exec(name);
+  if (dmy) {
+    [d, mo, y] = [parseInt(dmy[1], 10), parseInt(dmy[2], 10), parseInt(dmy[3], 10)];
+  } else if (m) {
+    y = m[1].length === 2 ? 2e3 + parseInt(m[1], 10) : parseInt(m[1], 10);
+    mo = parseInt(m[2], 10);
+    d = parseInt(m[3], 10);
+  } else {
+    return null;
+  }
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return Math.floor(Date.UTC(y, mo - 1, d) / 864e5);
+}
+function compareReleaseDate(metaDate, releaseName) {
+  const rel = releaseDay(releaseName);
+  const m = metaDate ? /^(\d{4})-(\d{2})-(\d{2})/.exec(metaDate) : null;
+  if (rel == null || !m) return "unknown";
+  const meta2 = Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 864e5);
+  return Math.abs(meta2 - rel) <= 1 ? "match" : "mismatch";
+}
 function isRelevant(meta2, t) {
   const hay = t.rawTitle;
   if (meta2.contentType === "jav") {
@@ -9393,6 +9469,11 @@ function isRelevant(meta2, t) {
   const hayWords = new Set(words(hay));
   const studioHit = !!(meta2.studio && words(meta2.studio).some((w) => hayWords.has(w)));
   const performerHit = meta2.performers.some((p) => words(p).some((w) => hayWords.has(w)));
+  if (meta2.contentType === "scenes") {
+    const dateCmp = compareReleaseDate(meta2.date, hay);
+    if (dateCmp === "mismatch") return false;
+    if (dateCmp === "match" && studioHit) return true;
+  }
   if (meta2.contentType === "movies") {
     const titleWords = words(meta2.title);
     const coverage = titleWords.length ? titleWords.filter((w) => hayWords.has(w)).length / titleWords.length : alnum(hay).includes(alnum(meta2.title)) ? 1 : 0;
@@ -9533,6 +9614,9 @@ async function searchAdultBackends(sources, fallbackZileanUrl, query, signal) {
     const z = await zileanSearch(url, query, { signal, limit: 80 });
     for (const t of z) push2(t.infoHash, t.rawTitle, t.sizeBytes, t.adult);
   }
+  for (const t of await knabenSearch(query, { signal, limit: 50 })) {
+    push2(t.infoHash, t.rawTitle, t.sizeBytes, t.adult);
+  }
   const torznab = sources.filter((s) => s.source_type === "torznab" && s.url);
   if (torznab.length) {
     const { TorznabSource: TorznabSource2 } = await Promise.resolve().then(() => (init_src(), src_exports));
@@ -9583,10 +9667,6 @@ async function adultResolveContext(library, itemId, signal) {
     return null;
   }
   const adultSources = await listAdultStreamSources();
-  if (!adultSources.length && !cfg.zileanUrl) {
-    logger.warn("adult", "resolve skipped: no adult stream sources configured (add a Zilean/Torznab source under Streams \u2192 Adult)");
-    return null;
-  }
   const meta2 = await tpdbGetById(uuid, { token, contentType, signal });
   if (!meta2) {
     logger.warn("adult", `resolve skipped: ThePornDB had no record for ${itemId}`);
