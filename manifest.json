@@ -1,8 +1,8 @@
 {
-  "id": "rewind.vault",
+  "id": "zero.vault",
   "name": "Vault",
   "version": "2.0.1",
-  "description": "Adult content for Rewind — password-gated catalog + search (ThePornDB metadata; Zilean / Torznab / apiJAV / Rapidgator sourcing; on-demand debrid playback). Stays fully isolated from every normal library. Installing reveals the Adult library kind, the Adult sources section, and the ThePornDB credential.",
+  "description": "Adult content for Zero Media — password-gated catalog + search (ThePornDB metadata; Zilean / Torznab / apiJAV / Rapidgator sourcing; on-demand debrid playback). Stays fully isolated from every normal library. Installing reveals the Adult library kind, the Adult sources section, and the ThePornDB credential.",
   "resources": [
     "catalog",
     "search",
@@ -31,13 +31,13 @@
       "adult"
     ]
   },
-  "rewind": {
+  "zero": {
     "kind": "adult",
     "sdk": 2,
-    "repo": "j4ckgrey/rewind_vault",
+    "repo": "j4ckgrey/zero_vault",
     "branch": "main",
     "bundlePath": "dist/index.mjs",
-    "bundleUrl": "https://raw.githubusercontent.com/j4ckgrey/rewind_vault/release/dist/index.mjs",
+    "bundleUrl": "https://raw.githubusercontent.com/j4ckgrey/zero_vault/release/dist/index.mjs",
     "tabs": [],
     "configKeys": [
       {

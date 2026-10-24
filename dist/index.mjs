@@ -107,7 +107,7 @@ var init_log = __esm({
   }
 });
 
-// ../rewind_forge/src/host.ts
+// ../zero_forge/src/host.ts
 function setForgeHost(host2) {
   _host2 = host2;
 }
@@ -124,16 +124,16 @@ function hasForgeHost() {
 }
 var _host2;
 var init_host2 = __esm({
-  "../rewind_forge/src/host.ts"() {
+  "../zero_forge/src/host.ts"() {
     "use strict";
     _host2 = null;
   }
 });
 
-// ../rewind_forge/src/types.ts
+// ../zero_forge/src/types.ts
 var HDR_FLAG_HDR10, HDR_FLAG_DV, HDR_FLAG_HDR10_PLUS, HDR_FLAG_HLG;
 var init_types = __esm({
-  "../rewind_forge/src/types.ts"() {
+  "../zero_forge/src/types.ts"() {
     "use strict";
     HDR_FLAG_HDR10 = 1;
     HDR_FLAG_DV = 2;
@@ -142,13 +142,13 @@ var init_types = __esm({
   }
 });
 
-// ../rewind_forge/src/log.ts
+// ../zero_forge/src/log.ts
 function sink2() {
   return hasForgeHost() ? getForgeHost().logger : consoleLogger2;
 }
 var consoleLogger2, logger2;
 var init_log2 = __esm({
-  "../rewind_forge/src/log.ts"() {
+  "../zero_forge/src/log.ts"() {
     "use strict";
     init_host2();
     consoleLogger2 = {
@@ -166,7 +166,7 @@ var init_log2 = __esm({
   }
 });
 
-// ../rewind_forge/src/filter.ts
+// ../zero_forge/src/filter.ts
 function applyFilters(streams2, prefs) {
   return streams2.filter((s) => matchesPrefs(s, prefs));
 }
@@ -263,15 +263,15 @@ function parseStreamPrefs(row) {
   };
 }
 var init_filter = __esm({
-  "../rewind_forge/src/filter.ts"() {
+  "../zero_forge/src/filter.ts"() {
     "use strict";
   }
 });
 
-// ../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/types.js
+// ../zero_forge/node_modules/@viren070/parse-torrent-title/dist/types.js
 var ValueSet;
 var init_types2 = __esm({
-  "../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/types.js"() {
+  "../zero_forge/node_modules/@viren070/parse-torrent-title/dist/types.js"() {
     "use strict";
     ValueSet = class {
       constructor() {
@@ -295,7 +295,7 @@ var init_types2 = __esm({
   }
 });
 
-// ../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/utils.js
+// ../zero_forge/node_modules/@viren070/parse-torrent-title/dist/utils.js
 function cleanTitle(rawTitle) {
   let title = rawTitle.trim();
   title = title.replace(/_/g, " ");
@@ -354,7 +354,7 @@ function getMatchIndices(regex, str) {
 }
 var NON_ENGLISH_CHARS, russianCastRegex, altTitlesRegex, notOnlyNonEnglishRegex, notAllowedSymbolsAtStartAndEndRegex, remainingNotAllowedSymbolsAtStartAndEndRegex, movieIndicatorRegex, releaseGroupMarkingAtStartRegex, releaseGroupMarkingAtEndRegex, beforeTitleRegex, nonDigitsRegex, nonAlphasRegex, underscoresRegex, whitespacesRegex, redundantSymbolsAtEnd, trailingEpisodePattern, curlyBrackets, squareBrackets, parentheses, brackets;
 var init_utils = __esm({
-  "../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/utils.js"() {
+  "../zero_forge/node_modules/@viren070/parse-torrent-title/dist/utils.js"() {
     "use strict";
     NON_ENGLISH_CHARS = "\\u3040-\\u309F\\u30A0-\\u30FF\\u4E00-\\u9FFF\\u0400-\\u04FF";
     russianCastRegex = new RegExp(`(\\([^)]*[${NON_ENGLISH_CHARS}][^)]*\\))$|(?:\\/.*?)(\\(.*\\))$`, "u");
@@ -379,7 +379,7 @@ var init_utils = __esm({
   }
 });
 
-// ../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/parser.js
+// ../zero_forge/node_modules/@viren070/parse-torrent-title/dist/parser.js
 function hasValueSet(field) {
   return VALUE_SET_FIELDS.has(field);
 }
@@ -668,7 +668,7 @@ function parse(title, handlers2) {
 }
 var VALUE_SET_FIELDS;
 var init_parser = __esm({
-  "../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/parser.js"() {
+  "../zero_forge/node_modules/@viren070/parse-torrent-title/dist/parser.js"() {
     "use strict";
     init_types2();
     init_utils();
@@ -683,7 +683,7 @@ var init_parser = __esm({
   }
 });
 
-// ../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/transforms.js
+// ../zero_forge/node_modules/@viren070/parse-torrent-title/dist/transforms.js
 function toValue(value) {
   return (title, m) => {
     m.value = value;
@@ -923,14 +923,14 @@ function toIntRangeTill() {
   };
 }
 var init_transforms = __esm({
-  "../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/transforms.js"() {
+  "../zero_forge/node_modules/@viren070/parse-torrent-title/dist/transforms.js"() {
     "use strict";
     init_types2();
     init_utils();
   }
 });
 
-// ../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/validators.js
+// ../zero_forge/node_modules/@viren070/parse-torrent-title/dist/validators.js
 function validateOr(...validators) {
   return (input, idxs) => {
     return validators.some((v) => v(input, idxs));
@@ -1006,12 +1006,12 @@ function validateMatchedGroupsAreSame(...indices) {
   };
 }
 var init_validators = __esm({
-  "../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/validators.js"() {
+  "../zero_forge/node_modules/@viren070/parse-torrent-title/dist/validators.js"() {
     "use strict";
   }
 });
 
-// ../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/processors.js
+// ../zero_forge/node_modules/@viren070/parse-torrent-title/dist/processors.js
 function removeFromValue(re) {
   return (title, m) => {
     if (typeof m.value === "string" && m.value !== "") {
@@ -1053,16 +1053,16 @@ function regexMatchUntilValid(re, validator) {
   };
 }
 var init_processors = __esm({
-  "../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/processors.js"() {
+  "../zero_forge/node_modules/@viren070/parse-torrent-title/dist/processors.js"() {
     "use strict";
     init_utils();
   }
 });
 
-// ../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/handlers.js
+// ../zero_forge/node_modules/@viren070/parse-torrent-title/dist/handlers.js
 var handlers;
 var init_handlers = __esm({
-  "../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/handlers.js"() {
+  "../zero_forge/node_modules/@viren070/parse-torrent-title/dist/handlers.js"() {
     "use strict";
     init_types2();
     init_utils();
@@ -4000,10 +4000,10 @@ var init_handlers = __esm({
   }
 });
 
-// ../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/index.js
+// ../zero_forge/node_modules/@viren070/parse-torrent-title/dist/index.js
 var Parser;
 var init_dist = __esm({
-  "../rewind_forge/node_modules/@viren070/parse-torrent-title/dist/index.js"() {
+  "../zero_forge/node_modules/@viren070/parse-torrent-title/dist/index.js"() {
     "use strict";
     init_parser();
     init_handlers();
@@ -4079,7 +4079,7 @@ var init_dist = __esm({
   }
 });
 
-// ../rewind_forge/src/parser.ts
+// ../zero_forge/src/parser.ts
 var parser_exports = {};
 __export(parser_exports, {
   parseCandidate: () => parseCandidate,
@@ -4348,7 +4348,7 @@ function parseSeeders(text) {
 }
 var ptt, SEASON_WORD, EPISODE_WORD;
 var init_parser2 = __esm({
-  "../rewind_forge/src/parser.ts"() {
+  "../zero_forge/src/parser.ts"() {
     "use strict";
     init_dist();
     init_types();
@@ -4358,7 +4358,7 @@ var init_parser2 = __esm({
   }
 });
 
-// ../rewind_forge/src/sources/base.ts
+// ../zero_forge/src/sources/base.ts
 import { createHash } from "node:crypto";
 function candidateId(sourceId, sourceLocalKey) {
   return createHash("md5").update(`${sourceId}:${sourceLocalKey}`).digest("hex");
@@ -4437,14 +4437,14 @@ async function fetchText(url, opts = {}) {
 }
 var SECRET_PARAM_RE;
 var init_base = __esm({
-  "../rewind_forge/src/sources/base.ts"() {
+  "../zero_forge/src/sources/base.ts"() {
     "use strict";
     init_log2();
     SECRET_PARAM_RE = /([?&](?:apikey|api_key|apitoken|token|auth_token|passkey|password|pass|key|secret)=)[^&#]*/gi;
   }
 });
 
-// ../rewind_forge/src/resolvers/base.ts
+// ../zero_forge/src/resolvers/base.ts
 var base_exports = {};
 __export(base_exports, {
   fetchAuthed: () => fetchAuthed,
@@ -4542,7 +4542,7 @@ function pickFileForEpisode(files, hint) {
 }
 var VIDEO_EXT, NON_VIDEO_EXT;
 var init_base2 = __esm({
-  "../rewind_forge/src/resolvers/base.ts"() {
+  "../zero_forge/src/resolvers/base.ts"() {
     "use strict";
     init_log2();
     init_base();
@@ -4552,13 +4552,13 @@ var init_base2 = __esm({
   }
 });
 
-// ../rewind_forge/src/resolvers/alldebrid.ts
+// ../zero_forge/src/resolvers/alldebrid.ts
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 var AD_HOST, AllDebridResolver;
 var init_alldebrid = __esm({
-  "../rewind_forge/src/resolvers/alldebrid.ts"() {
+  "../zero_forge/src/resolvers/alldebrid.ts"() {
     "use strict";
     init_base2();
     AD_HOST = "https://api.alldebrid.com/v4";
@@ -4578,7 +4578,7 @@ var init_alldebrid = __esm({
         for (let i = 0; i < hashes.length; i += BATCH) {
           const slice = hashes.slice(i, i + BATCH);
           const params = new URLSearchParams();
-          params.set("agent", "rewind");
+          params.set("agent", "zero");
           for (const c of slice) params.append("magnets[]", c.infoHash);
           const data = await fetchAuthed(
             `${AD_HOST}/magnet/instant?${params.toString()}`,
@@ -4596,7 +4596,7 @@ var init_alldebrid = __esm({
       async resolve(candidate, signal, hint) {
         if (!this.apiKey || !candidate.infoHash) return null;
         const uploadBody = new URLSearchParams();
-        uploadBody.set("agent", "rewind");
+        uploadBody.set("agent", "zero");
         uploadBody.append("magnets[]", magnetFromHash(candidate.infoHash));
         const uploaded = await fetchAuthed(
           `${AD_HOST}/magnet/upload?apikey=${encodeURIComponent(this.apiKey)}`,
@@ -4640,7 +4640,7 @@ var init_alldebrid = __esm({
   }
 });
 
-// ../rewind_forge/src/resolvers/nzbdav.ts
+// ../zero_forge/src/resolvers/nzbdav.ts
 function parseConfig(raw) {
   if (!raw) return {};
   try {
@@ -4656,7 +4656,7 @@ function pickCategory(hint, c) {
 }
 function sanitiseJobLabel(s) {
   const cleaned = s.replace(/[\u0000-\u001F\u007F]+/g, " ").replace(/[^\x20-\x7E]/g, "").replace(/[/\\]/g, "_").replace(/\s+/g, " ").trim().slice(0, 240);
-  return cleaned || "rewind-nzb";
+  return cleaned || "zero-nzb";
 }
 function basename(p) {
   const parts = p.replace(/\\/g, "/").split("/").filter(Boolean);
@@ -4720,7 +4720,7 @@ function parsePropfindFiles(xml, baseUrl) {
 }
 var DEFAULT_POLL_MS, DEFAULT_MAX_WAIT_MS, DEFAULT_CONTENT_PREFIX, NzbDavResolver, VIDEO_EXT2;
 var init_nzbdav = __esm({
-  "../rewind_forge/src/resolvers/nzbdav.ts"() {
+  "../zero_forge/src/resolvers/nzbdav.ts"() {
     "use strict";
     init_log2();
     init_base2();
@@ -4844,10 +4844,10 @@ var init_nzbdav = __esm({
   }
 });
 
-// ../rewind_forge/src/resolvers/altmount.ts
+// ../zero_forge/src/resolvers/altmount.ts
 var AltMountResolver;
 var init_altmount = __esm({
-  "../rewind_forge/src/resolvers/altmount.ts"() {
+  "../zero_forge/src/resolvers/altmount.ts"() {
     "use strict";
     init_nzbdav();
     AltMountResolver = class extends NzbDavResolver {
@@ -4868,10 +4868,10 @@ var init_altmount = __esm({
   }
 });
 
-// ../rewind_forge/src/resolvers/debridlink.ts
+// ../zero_forge/src/resolvers/debridlink.ts
 var DL_HOST, DebridLinkResolver;
 var init_debridlink = __esm({
-  "../rewind_forge/src/resolvers/debridlink.ts"() {
+  "../zero_forge/src/resolvers/debridlink.ts"() {
     "use strict";
     init_base2();
     DL_HOST = "https://debrid-link.com/api/v2";
@@ -4940,10 +4940,10 @@ var init_debridlink = __esm({
   }
 });
 
-// ../rewind_forge/src/resolvers/easydebrid.ts
+// ../zero_forge/src/resolvers/easydebrid.ts
 var ED_HOST, EasyDebridResolver;
 var init_easydebrid = __esm({
-  "../rewind_forge/src/resolvers/easydebrid.ts"() {
+  "../zero_forge/src/resolvers/easydebrid.ts"() {
     "use strict";
     init_base2();
     ED_HOST = "https://easydebrid.com/api/v1";
@@ -5000,10 +5000,10 @@ var init_easydebrid = __esm({
   }
 });
 
-// ../rewind_forge/src/resolvers/offcloud.ts
+// ../zero_forge/src/resolvers/offcloud.ts
 var OC_HOST, OffcloudResolver;
 var init_offcloud = __esm({
-  "../rewind_forge/src/resolvers/offcloud.ts"() {
+  "../zero_forge/src/resolvers/offcloud.ts"() {
     "use strict";
     init_base2();
     OC_HOST = "https://offcloud.com/api";
@@ -5078,10 +5078,10 @@ var init_offcloud = __esm({
   }
 });
 
-// ../rewind_forge/src/resolvers/premiumize.ts
+// ../zero_forge/src/resolvers/premiumize.ts
 var PM_HOST, PremiumizeResolver;
 var init_premiumize = __esm({
-  "../rewind_forge/src/resolvers/premiumize.ts"() {
+  "../zero_forge/src/resolvers/premiumize.ts"() {
     "use strict";
     init_base2();
     PM_HOST = "https://www.premiumize.me/api";
@@ -5145,10 +5145,10 @@ var init_premiumize = __esm({
   }
 });
 
-// ../rewind_forge/src/resolvers/putio.ts
+// ../zero_forge/src/resolvers/putio.ts
 var PUTIO_HOST, PutioResolver;
 var init_putio = __esm({
-  "../rewind_forge/src/resolvers/putio.ts"() {
+  "../zero_forge/src/resolvers/putio.ts"() {
     "use strict";
     init_base2();
     PUTIO_HOST = "https://api.put.io/v2";
@@ -5206,7 +5206,7 @@ var init_putio = __esm({
   }
 });
 
-// ../rewind_forge/src/resolvers/realdebrid.ts
+// ../zero_forge/src/resolvers/realdebrid.ts
 function isCached(node) {
   if (!node) return false;
   if (Array.isArray(node)) return node.length > 0;
@@ -5218,7 +5218,7 @@ function sleep3(ms) {
 }
 var RD_HOST, RealDebridResolver;
 var init_realdebrid = __esm({
-  "../rewind_forge/src/resolvers/realdebrid.ts"() {
+  "../zero_forge/src/resolvers/realdebrid.ts"() {
     "use strict";
     init_base2();
     RD_HOST = "https://api.real-debrid.com/rest/1.0";
@@ -5312,7 +5312,7 @@ var init_realdebrid = __esm({
   }
 });
 
-// ../rewind_forge/src/resolvers/torbox.ts
+// ../zero_forge/src/resolvers/torbox.ts
 async function pollForReady(fn) {
   let last = null;
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -5325,7 +5325,7 @@ async function pollForReady(fn) {
 }
 var TB_HOST, TorBoxResolver;
 var init_torbox = __esm({
-  "../rewind_forge/src/resolvers/torbox.ts"() {
+  "../zero_forge/src/resolvers/torbox.ts"() {
     "use strict";
     init_base2();
     TB_HOST = "https://api.torbox.app/v1/api";
@@ -5436,10 +5436,10 @@ var init_torbox = __esm({
   }
 });
 
-// ../rewind_forge/src/usenet/files.ts
+// ../zero_forge/src/usenet/files.ts
 var NzbFileReader, SpanFile;
 var init_files = __esm({
-  "../rewind_forge/src/usenet/files.ts"() {
+  "../zero_forge/src/usenet/files.ts"() {
     "use strict";
     NzbFileReader = class {
       constructor(file, store, readAhead = 8) {
@@ -5545,7 +5545,7 @@ var init_files = __esm({
   }
 });
 
-// ../rewind_forge/src/usenet/rar.ts
+// ../zero_forge/src/usenet/rar.ts
 function rarVersion(head) {
   if (head.subarray(0, 8).equals(RAR5_SIG)) return 5;
   if (head.subarray(0, 7).equals(RAR4_SIG)) return 4;
@@ -5674,7 +5674,7 @@ function hasRar5EncryptionRecord(extra) {
 }
 var RAR4_SIG, RAR5_SIG, RarError, R4_MAIN, R4_FILE, R4_END, R4_LONG_BLOCK, R5_FILE, R5_ENCRYPTION, R5_END, WindowReader, VintReader;
 var init_rar = __esm({
-  "../rewind_forge/src/usenet/rar.ts"() {
+  "../zero_forge/src/usenet/rar.ts"() {
     "use strict";
     RAR4_SIG = Buffer.from([82, 97, 114, 33, 26, 7, 0]);
     RAR5_SIG = Buffer.from([82, 97, 114, 33, 26, 7, 1, 0]);
@@ -5731,7 +5731,7 @@ var init_rar = __esm({
   }
 });
 
-// ../rewind_forge/src/usenet/media.ts
+// ../zero_forge/src/usenet/media.ts
 async function scanNzb(files, store, concurrency, wanted = VIDEO_EXT3) {
   const problems = [];
   const candidates = files.map((file, index) => ({ file, index })).filter(({ file }) => !JUNK_EXT.test(file.name) && !/\.vol\d+\+\d+/i.test(file.name));
@@ -5866,7 +5866,7 @@ async function mapLimit(items, limit, fn) {
 }
 var JUNK_EXT, VIDEO_EXT3, BOOK_EXT;
 var init_media = __esm({
-  "../rewind_forge/src/usenet/media.ts"() {
+  "../zero_forge/src/usenet/media.ts"() {
     "use strict";
     init_files();
     init_rar();
@@ -5876,7 +5876,7 @@ var init_media = __esm({
   }
 });
 
-// ../rewind_forge/src/usenet/nntp.ts
+// ../zero_forge/src/usenet/nntp.ts
 import net from "node:net";
 import tls from "node:tls";
 function dotUnstuff(raw) {
@@ -5897,7 +5897,7 @@ function dotUnstuff(raw) {
 }
 var ArticleMissingError, NntpError, DEFAULT_TIMEOUT_MS, TERMINATOR, NntpConnection, NntpPool;
 var init_nntp = __esm({
-  "../rewind_forge/src/usenet/nntp.ts"() {
+  "../zero_forge/src/usenet/nntp.ts"() {
     "use strict";
     ArticleMissingError = class extends Error {
       constructor(messageId) {
@@ -6142,7 +6142,7 @@ var init_nntp = __esm({
   }
 });
 
-// ../rewind_forge/src/usenet/nzb.ts
+// ../zero_forge/src/usenet/nzb.ts
 function parseNzb(xml) {
   const files = [];
   const fileRe = /<file\b([^>]*)>([\s\S]*?)<\/file>/gi;
@@ -6195,12 +6195,12 @@ function decodeEntities(s) {
   return s.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16))).replace(/&amp;/g, "&");
 }
 var init_nzb = __esm({
-  "../rewind_forge/src/usenet/nzb.ts"() {
+  "../zero_forge/src/usenet/nzb.ts"() {
     "use strict";
   }
 });
 
-// ../rewind_forge/src/usenet/yenc.ts
+// ../zero_forge/src/usenet/yenc.ts
 function decodeYenc(body) {
   const beginAt = body.indexOf("=ybegin ");
   if (beginAt < 0) throw new YencError("article is not yEnc (no =ybegin)");
@@ -6259,7 +6259,7 @@ function skipEol(buf, eol) {
 }
 var CR, LF, EQ, YencError;
 var init_yenc = __esm({
-  "../rewind_forge/src/usenet/yenc.ts"() {
+  "../zero_forge/src/usenet/yenc.ts"() {
     "use strict";
     CR = 13;
     LF = 10;
@@ -6269,10 +6269,10 @@ var init_yenc = __esm({
   }
 });
 
-// ../rewind_forge/src/usenet/segments.ts
+// ../zero_forge/src/usenet/segments.ts
 var SegmentStore;
 var init_segments = __esm({
-  "../rewind_forge/src/usenet/segments.ts"() {
+  "../zero_forge/src/usenet/segments.ts"() {
     "use strict";
     init_yenc();
     SegmentStore = class {
@@ -6318,7 +6318,7 @@ var init_segments = __esm({
   }
 });
 
-// ../rewind_forge/src/usenet/verdicts.ts
+// ../zero_forge/src/usenet/verdicts.ts
 import { createHash as createHash2 } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -6330,7 +6330,7 @@ function classifyFailure(message) {
 }
 var DAY, TTL, GOOD_TTL, CHECKED_TTL, MAX_ENTRIES, VerdictStore;
 var init_verdicts = __esm({
-  "../rewind_forge/src/usenet/verdicts.ts"() {
+  "../zero_forge/src/usenet/verdicts.ts"() {
     "use strict";
     DAY = 864e5;
     TTL = { missing: 14 * DAY, locked: 365 * DAY, empty: 365 * DAY };
@@ -6407,7 +6407,7 @@ var init_verdicts = __esm({
   }
 });
 
-// ../rewind_forge/src/usenet/engine.ts
+// ../zero_forge/src/usenet/engine.ts
 import { createHash as createHash3 } from "node:crypto";
 import { mkdir as mkdir2, readFile as readFile2, writeFile as writeFile2 } from "node:fs/promises";
 import path2 from "node:path";
@@ -6416,7 +6416,7 @@ async function fetchNzb(url, signal) {
   try {
     res = await fetch(url, {
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(2e4)]) : AbortSignal.timeout(2e4),
-      headers: { "User-Agent": "Rewind" }
+      headers: { "User-Agent": "Zero Media" }
     });
   } catch (err) {
     throw new Error(`NZB download failed (${describeFetchFailure(err)}) from ${redactUrl(url)}`);
@@ -6440,7 +6440,7 @@ function cleanNzbUrl(url) {
 }
 var WANTED, HEALTH_SAMPLE, SCREEN_SAMPLE, UsenetEngine;
 var init_engine = __esm({
-  "../rewind_forge/src/usenet/engine.ts"() {
+  "../zero_forge/src/usenet/engine.ts"() {
     "use strict";
     init_log2();
     init_base2();
@@ -6648,7 +6648,7 @@ var init_engine = __esm({
   }
 });
 
-// ../rewind_forge/src/usenet/server.ts
+// ../zero_forge/src/usenet/server.ts
 import http from "node:http";
 function createStreamServer(open) {
   return http.createServer((req, res) => {
@@ -6729,7 +6729,7 @@ function parseRange(header, size) {
 }
 var MIME;
 var init_server = __esm({
-  "../rewind_forge/src/usenet/server.ts"() {
+  "../zero_forge/src/usenet/server.ts"() {
     "use strict";
     init_log2();
     MIME = {
@@ -6745,7 +6745,7 @@ var init_server = __esm({
   }
 });
 
-// ../rewind_forge/src/usenet/service.ts
+// ../zero_forge/src/usenet/service.ts
 import os from "node:os";
 import path3 from "node:path";
 async function readUsenetSettings(overrides) {
@@ -6798,7 +6798,7 @@ async function ensureServer(port) {
   return ready;
 }
 function jobsDir() {
-  const base2 = hasForgeHost() && getForgeHost().dataDir || path3.join(os.tmpdir(), "rewind");
+  const base2 = hasForgeHost() && getForgeHost().dataDir || path3.join(os.tmpdir(), "zero");
   return path3.join(base2, "addons", "forge", "usenet");
 }
 function positive(v) {
@@ -6807,7 +6807,7 @@ function positive(v) {
 }
 var DEFAULT_STREAM_PORT, g, shared, THIS_MODULE;
 var init_service = __esm({
-  "../rewind_forge/src/usenet/service.ts"() {
+  "../zero_forge/src/usenet/service.ts"() {
     "use strict";
     init_host2();
     init_log2();
@@ -6816,7 +6816,7 @@ var init_service = __esm({
     init_server();
     DEFAULT_STREAM_PORT = 47810;
     g = globalThis;
-    shared = g.__rewindForgeUsenet ??= { engine: null, server: null, open: null };
+    shared = g.__zeroForgeUsenet ??= { engine: null, server: null, open: null };
     THIS_MODULE = /* @__PURE__ */ Symbol("forge-usenet");
     shared.open = async (jobId, idx) => {
       const e = shared.engine?.owner === THIS_MODULE ? shared.engine.engine : (await getUsenetEngine())?.engine;
@@ -6825,10 +6825,10 @@ var init_service = __esm({
   }
 });
 
-// ../rewind_forge/src/resolvers/usenet.ts
+// ../zero_forge/src/resolvers/usenet.ts
 var UsenetResolver;
 var init_usenet = __esm({
-  "../rewind_forge/src/resolvers/usenet.ts"() {
+  "../zero_forge/src/resolvers/usenet.ts"() {
     "use strict";
     init_log2();
     init_service();
@@ -6870,7 +6870,7 @@ var init_usenet = __esm({
   }
 });
 
-// ../rewind_forge/src/resolvers/index.ts
+// ../zero_forge/src/resolvers/index.ts
 function buildResolver(row) {
   const factory = FACTORIES[row.provider];
   return factory ? factory(row) : null;
@@ -6883,7 +6883,7 @@ function providerTag(provider) {
 }
 var FACTORIES, RESOLVER_PROVIDERS, PROVIDER_NAMES, PROVIDER_TAGS;
 var init_resolvers = __esm({
-  "../rewind_forge/src/resolvers/index.ts"() {
+  "../zero_forge/src/resolvers/index.ts"() {
     "use strict";
     init_alldebrid();
     init_altmount();
@@ -6939,7 +6939,7 @@ var init_resolvers = __esm({
   }
 });
 
-// ../rewind_forge/src/sort.ts
+// ../zero_forge/src/sort.ts
 function cacheRank(s) {
   if (s.cachedOnDebrid) return 2;
   if (s.assumedCached) return 1;
@@ -7005,7 +7005,7 @@ function pinReleaseGroup(streams2, preferredGroup, opts) {
 }
 var RESOLUTION_RANK, SOURCE_TAG_RANK;
 var init_sort = __esm({
-  "../rewind_forge/src/sort.ts"() {
+  "../zero_forge/src/sort.ts"() {
     "use strict";
     RESOLUTION_RANK = {
       "2160p": 4,
@@ -7027,7 +7027,7 @@ var init_sort = __esm({
   }
 });
 
-// ../rewind_forge/src/sources/comet.ts
+// ../zero_forge/src/sources/comet.ts
 function isCometErrorStream(s) {
   const name = (s.name ?? "").trim();
   if (/^\[(?:❌|⚠️?|ℹ️?|❗|⛔)\]/u.test(name)) return true;
@@ -7083,7 +7083,7 @@ ${s.description ?? ""}`;
 }
 var DEFAULT_HOST, COMET_SERVICE_BY_PROVIDER, CometSource;
 var init_comet = __esm({
-  "../rewind_forge/src/sources/comet.ts"() {
+  "../zero_forge/src/sources/comet.ts"() {
     "use strict";
     init_host2();
     init_base();
@@ -7099,7 +7099,7 @@ var init_comet = __esm({
       offcloud: "offcloud"
       // Putio + Pikpak are Comet-supported but we don't have parity resolvers,
       // so leave them out — passing them in would have Comet pre-restore on a
-      // service Rewind can't pick up.
+      // service Zero Media can't pick up.
     };
     CometSource = class {
       constructor(row) {
@@ -7185,7 +7185,7 @@ var init_comet = __esm({
   }
 });
 
-// ../rewind_forge/src/sources/easynews.ts
+// ../zero_forge/src/sources/easynews.ts
 function buildCandidateFromItem(raw, downHost, user, pass, rowId, rowName) {
   let hash;
   let id;
@@ -7239,7 +7239,7 @@ function buildEpisodeQuery(query) {
 }
 var EasyNewsSource;
 var init_easynews = __esm({
-  "../rewind_forge/src/sources/easynews.ts"() {
+  "../zero_forge/src/sources/easynews.ts"() {
     "use strict";
     init_base();
     EasyNewsSource = class {
@@ -7290,10 +7290,10 @@ var init_easynews = __esm({
   }
 });
 
-// ../rewind_forge/src/sources/external-addon.ts
+// ../zero_forge/src/sources/external-addon.ts
 var ExternalAddonSource;
 var init_external_addon = __esm({
-  "../rewind_forge/src/sources/external-addon.ts"() {
+  "../zero_forge/src/sources/external-addon.ts"() {
     "use strict";
     init_base();
     ExternalAddonSource = class {
@@ -7336,10 +7336,10 @@ var init_external_addon = __esm({
   }
 });
 
-// ../rewind_forge/src/sources/torbox-search.ts
+// ../zero_forge/src/sources/torbox-search.ts
 var TORBOX_SEARCH_HOST, TorBoxSearchSource;
 var init_torbox_search = __esm({
-  "../rewind_forge/src/sources/torbox-search.ts"() {
+  "../zero_forge/src/sources/torbox-search.ts"() {
     "use strict";
     init_base();
     TORBOX_SEARCH_HOST = "https://search-api.torbox.app";
@@ -7406,7 +7406,7 @@ var init_torbox_search = __esm({
   }
 });
 
-// ../rewind_forge/src/sources/torrentio.ts
+// ../zero_forge/src/sources/torrentio.ts
 function buildCandidate2(row, s) {
   const rawTitle = s.title ?? s.behaviorHints?.filename ?? "";
   const sizeBytes = pullSize(rawTitle);
@@ -7450,7 +7450,7 @@ function pullSeeders(text) {
 }
 var DEFAULT_HOST2, TorrentioSource;
 var init_torrentio = __esm({
-  "../rewind_forge/src/sources/torrentio.ts"() {
+  "../zero_forge/src/sources/torrentio.ts"() {
     "use strict";
     init_base();
     DEFAULT_HOST2 = "https://torrentio.strem.fun";
@@ -7475,7 +7475,7 @@ var init_torrentio = __esm({
   }
 });
 
-// ../rewind_forge/src/sources/torznab.ts
+// ../zero_forge/src/sources/torznab.ts
 function parseTorznabXml(xml, row, isUsenet) {
   const items = [];
   const itemRegex = /<item>([\s\S]*?)<\/item>/g;
@@ -7561,7 +7561,7 @@ function pickEnclosure(block) {
 }
 var TorznabSource;
 var init_torznab = __esm({
-  "../rewind_forge/src/sources/torznab.ts"() {
+  "../zero_forge/src/sources/torznab.ts"() {
     "use strict";
     init_base();
     TorznabSource = class {
@@ -7600,7 +7600,7 @@ var init_torznab = __esm({
   }
 });
 
-// ../rewind_forge/src/sources/zilean.ts
+// ../zero_forge/src/sources/zilean.ts
 function buildCandidate3(row, item) {
   const rawTitle = item.raw_title ?? item.parsed_title ?? "";
   return {
@@ -7645,7 +7645,7 @@ function parseZileanSize(size) {
 }
 var ZileanSource;
 var init_zilean = __esm({
-  "../rewind_forge/src/sources/zilean.ts"() {
+  "../zero_forge/src/sources/zilean.ts"() {
     "use strict";
     init_base();
     ZileanSource = class {
@@ -7680,14 +7680,14 @@ var init_zilean = __esm({
   }
 });
 
-// ../rewind_forge/src/sources/index.ts
+// ../zero_forge/src/sources/index.ts
 function buildSource(row) {
   const factory = FACTORIES2[row.source_type];
   return factory ? factory(row) : null;
 }
 var FACTORIES2, SOURCE_TYPES;
 var init_sources = __esm({
-  "../rewind_forge/src/sources/index.ts"() {
+  "../zero_forge/src/sources/index.ts"() {
     "use strict";
     init_comet();
     init_easynews();
@@ -7711,7 +7711,7 @@ var init_sources = __esm({
   }
 });
 
-// ../rewind_forge/src/usenet/screen.ts
+// ../zero_forge/src/usenet/screen.ts
 async function screenUsenet(streams2, isUsenet) {
   const queue = streams2.filter((s) => s.nzbId && isUsenet(s));
   if (!queue.length) return streams2;
@@ -7746,7 +7746,7 @@ async function screenUsenet(streams2, isUsenet) {
 }
 var WANT_ALIVE, MAX_SCREENED, CONCURRENCY, BUDGET_MS;
 var init_screen = __esm({
-  "../rewind_forge/src/usenet/screen.ts"() {
+  "../zero_forge/src/usenet/screen.ts"() {
     "use strict";
     init_log2();
     init_service();
@@ -7757,7 +7757,7 @@ var init_screen = __esm({
   }
 });
 
-// ../rewind_forge/src/formatter.ts
+// ../zero_forge/src/formatter.ts
 function renderHdr(s, mode) {
   const tags = [];
   if (s.hdrFlags & HDR_FLAG_HDR10_PLUS2) tags.push("HDR10+");
@@ -7915,7 +7915,7 @@ function parseFormatterConfig(raw) {
 }
 var RES_MAP_NAMES, RES_MAP_EMOJI, CATEGORY_STYLES, HDR_FLAG_HDR102, HDR_FLAG_DV2, HDR_FLAG_HDR10_PLUS2, HDR_FLAG_HLG2, FLAG_MAP, DEFAULT_FORMATTER_CONFIG, PRESET_MINIMAL, PRESET_PRISM, PRESETS;
 var init_formatter = __esm({
-  "../rewind_forge/src/formatter.ts"() {
+  "../zero_forge/src/formatter.ts"() {
     "use strict";
     RES_MAP_NAMES = {
       "2160p": "4K",
@@ -8450,7 +8450,7 @@ var init_formatter = __esm({
   }
 });
 
-// ../rewind_forge/src/pipeline.ts
+// ../zero_forge/src/pipeline.ts
 import { createHash as createHash4 } from "node:crypto";
 function dbg(message) {
   if (STREAMS_DEBUG) logger2.info("streams", message);
@@ -8786,7 +8786,7 @@ function streamRowId(itemId, s) {
 }
 var BUILTIN_USENET_ACCOUNT_ID, DEFAULT_SOURCE_TIMEOUT_MS, DEFAULT_RESOLVE_TIMEOUT_MS, SOURCE_SEARCH_TIMEOUT_MS, STREAMS_DEBUG;
 var init_pipeline = __esm({
-  "../rewind_forge/src/pipeline.ts"() {
+  "../zero_forge/src/pipeline.ts"() {
     "use strict";
     init_host2();
     init_log2();
@@ -8806,16 +8806,16 @@ var init_pipeline = __esm({
   }
 });
 
-// ../rewind_forge/src/constants.ts
+// ../zero_forge/src/constants.ts
 var DEFAULT_USER_ID;
 var init_constants = __esm({
-  "../rewind_forge/src/constants.ts"() {
+  "../zero_forge/src/constants.ts"() {
     "use strict";
     DEFAULT_USER_ID = "user-admin";
   }
 });
 
-// ../rewind_forge/src/index.ts
+// ../zero_forge/src/index.ts
 var src_exports = {};
 __export(src_exports, {
   CometSource: () => CometSource,
@@ -8860,7 +8860,7 @@ __export(src_exports, {
   syncNativeStreams: () => syncNativeStreams
 });
 var init_src = __esm({
-  "../rewind_forge/src/index.ts"() {
+  "../zero_forge/src/index.ts"() {
     "use strict";
     init_host2();
     init_types();
@@ -8993,10 +8993,10 @@ var init_ptube = __esm({
   }
 });
 
-// ../rewind_addon_sdk/src/manifest.ts
+// ../zero_addon_sdk/src/manifest.ts
 var SDK_PROTOCOL_VERSION = 2;
 
-// ../rewind_addon_sdk/src/addon.ts
+// ../zero_addon_sdk/src/addon.ts
 function defineAddon(def) {
   return {
     manifest: def.manifest,
@@ -9070,7 +9070,8 @@ function detectVrRelease(rawTitle, sizeBytes) {
 }
 function detectVr(rawTitle) {
   if (!rawTitle) return false;
-  return VR_TOKEN.test(rawTitle) || VR_STUDIO_SUFFIX.test(rawTitle) || VR_STUDIO_NAME.test(rawTitle) || VR_PROJECTION.test(rawTitle);
+  const t = `${rawTitle} ${rawTitle.replace(/[._-]+/g, " ")}`;
+  return VR_TOKEN.test(t) || VR_STUDIO_SUFFIX.test(t) || VR_STUDIO_NAME.test(t) || VR_PROJECTION.test(t);
 }
 
 // src/playback.ts
@@ -9786,7 +9787,8 @@ async function adultResolveItem(library, itemId, signal, opts) {
       durationTicks: Math.max(0, Math.round((meta2.durationSeconds ?? 0) * 1e7)),
       title: meta2.title,
       posterUrl: meta2.posterUrl,
-      infoHash: opt.infoHash
+      infoHash: opt.infoHash,
+      fileName: detailed.name ?? opt.rawTitle
     };
   }
   if (queued) {
@@ -10451,7 +10453,8 @@ async function adultResolveCatalog(infoHash, signal) {
     durationTicks: Math.max(0, Math.round(durationSeconds * 1e7)),
     title,
     posterUrl: row.poster_url,
-    infoHash: row.info_hash
+    infoHash: row.info_hash,
+    fileName: detailed.name ?? row.raw_title
   };
 }
 
@@ -11258,7 +11261,7 @@ var resources = {
   catalog: async (req) => ({
     metas: (isCatalogRail(req.id) ? await catalogRail(req.id) : await searchCatalog(req.extra.libraryId ? await libraryFromRequest(req) : {}, req.id)).map(resultMeta)
   }),
-  // automation/automation/refresh-catalogs.json — manifest rewind.automations.
+  // automation/automation/refresh-catalogs.json — manifest zero.automations.
   automation: async ({ id }) => {
     if (id === "refresh-catalogs") {
       const r = await refreshCatalogRails();
@@ -11274,10 +11277,10 @@ var resources = {
 
 // manifest.json
 var manifest_default = {
-  id: "rewind.vault",
+  id: "zero.vault",
   name: "Vault",
   version: "2.0.1",
-  description: "Adult content for Rewind \u2014 password-gated catalog + search (ThePornDB metadata; Zilean / Torznab / apiJAV / Rapidgator sourcing; on-demand debrid playback). Stays fully isolated from every normal library. Installing reveals the Adult library kind, the Adult sources section, and the ThePornDB credential.",
+  description: "Adult content for Zero Media \u2014 password-gated catalog + search (ThePornDB metadata; Zilean / Torznab / apiJAV / Rapidgator sourcing; on-demand debrid playback). Stays fully isolated from every normal library. Installing reveals the Adult library kind, the Adult sources section, and the ThePornDB credential.",
   resources: [
     "catalog",
     "search",
@@ -11306,13 +11309,13 @@ var manifest_default = {
       "adult"
     ]
   },
-  rewind: {
+  zero: {
     kind: "adult",
     sdk: 2,
-    repo: "j4ckgrey/rewind_vault",
+    repo: "j4ckgrey/zero_vault",
     branch: "main",
     bundlePath: "dist/index.mjs",
-    bundleUrl: "https://raw.githubusercontent.com/j4ckgrey/rewind_vault/release/dist/index.mjs",
+    bundleUrl: "https://raw.githubusercontent.com/j4ckgrey/zero_vault/release/dist/index.mjs",
     tabs: [],
     configKeys: [
       {
